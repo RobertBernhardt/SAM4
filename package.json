@@ -3,6 +3,7 @@
   "version": "1.0.0",
   "main": "Code.js",
   "scripts": {
+    "deploy": "tsc && copy src\\appsscript.json build\\appsscript.json && clasp push",
     "test": "echo \"Error: no test specified\" && exit 1"
   },
   "keywords": [],
