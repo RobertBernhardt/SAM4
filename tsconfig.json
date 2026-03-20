@@ -1,0 +1,14 @@
+{
+    "compilerOptions": {
+        "lib": [
+            "esnext"
+        ],
+        "target": "ES2020",
+        "noEmit": true,
+        "skipLibCheck": true,
+        "experimentalDecorators": true
+    },
+    "include": [
+        "src/**/*"
+    ]
+}

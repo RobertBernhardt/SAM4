@@ -1,0 +1,19 @@
+# Dependencies
+node_modules/**
+
+# Git
+.git/**
+
+# Documentation (not needed in GAS)
+README.md
+AGENTS.md
+
+# Build artifacts
+dist/**
+*.map
+
+# Config files not needed in GAS
+tsconfig.json
+package.json
+package-lock.json
+.claspignore
