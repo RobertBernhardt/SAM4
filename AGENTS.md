@@ -1,154 +1,89 @@
-# AGENTS.md — SAM4 Living Documentation
+# SAM4 Living Documentation
 
-> **SAM4** — A GAS-based hierarchical AI agent system built with TypeScript and clasp.
+> **SAM4** — A metadata-driven universal agent engine running entirely on Google Apps Script (GAS).
 
 ---
 
 ## Overview
 
-SAM4 is a modular, hierarchical AI agent system that runs entirely on Google Apps Script (GAS). Agents — called **Algos** — use Gemini function calling to invoke sub-agents and script tools. The system follows a strict **"no waiting"** rule: it never uses `Utilities.sleep()` to wait for human input. Instead, it persists state to Google Sheets and terminates execution, resuming when the next event arrives.
+SAM4 is a modular AI agent system where **agents do not get their own files anymore**. They are just configurations in a spreadsheet. The codebase serves merely as the universal runner. The "SAM" Google Sheet is the brain of the operation.
 
 ### Core Principles
 
 | Principle | Description |
 |---|---|
-| **Flat Namespace, Local Hierarchy** | GAS flattens all files. We use local folders (`src/agents/`, `src/tools/`, `src/core/`) for organization; clasp handles the flattening on push. |
-| **Algos, not Agents** | Every agent is an "algo." The naming convention reflects their algorithmic nature. |
-| **No Waiting** | Never `Utilities.sleep()`. Save state → kill execution → resume on next event. |
-| **Tool Calling** | Gemini function calling dispatches to sub-algos or script tools. |
-| **State Persistence** | All state is stored in a Google Sheet, keyed by a unique UID per task. |
+| **Flat Namespace, Local Hierarchy** | GAS flattens all files. We use `src/core/` and `src/tools/` for organization. |
+| **Death of Hardcoded Agents** | There are no more `analgo.ts` or `gemalgo.ts`. Every execution runs through the universal `runAlgo()` engine. |
+| **Spreadsheet is Truth** | All agent logic (models, prompts, tools, settings) is driven by the SAM sheet registry. |
+| **No Waiting** | Never use `Utilities.sleep()`. Save state → kill execution → resume later. |
+| **models/ Prefix** | All Gemini model calls must strictly use the `models/` prefix. |
 
 ---
 
-## File Structure
+## The Core Engine (`runAlgo`)
 
-```
-SAM4/
-├── .clasp.json              # clasp config (rootDir: src, TS enabled)
-├── .claspignore              # Files excluded from GAS push
-├── AGENTS.md                 # This file — living documentation
-├── Code.js                   # Legacy placeholder (can be removed)
-│
-└── src/
-    ├── appsscript.json       # GAS manifest (timezone, runtime V8)
-    ├── config.ts             # Global config: API keys, model defaults
-    ├── main.ts               # Entry point: doPost() Telegram webhook
-    │
-    ├── core/
-    │   ├── gemini_client.ts  # Gemini REST API wrapper (UrlFetchApp)
-    │   └── state_manager.ts  # Sheet-based state persistence (CRUD by UID)
-    │
-    ├── agents/
-    │   └── analgo.ts         # Analysis Algorithm — first algo
-    │
-    └── tools/
-        └── calculator.ts     # Simple arithmetic tool (add/sub/mul/div)
-```
+The `engine.ts` file acts as the universal processor:
+1. Receives an `algoId`, `uid`, and user input.
+2. Uses `RegistryLoader` to fetch the algo configuration and associated tools from the SAM sheet.
+3. Iteratively calls the Gemini model.
+4. Executes SCRIPT tools locally or recursively calls `runAlgo()` for AGENT tools.
+5. Logs token usage and every step via `state_manager.ts`.
 
 ---
 
-## Naming Conventions
+## The SAM Registry
 
-- **Algo files**: `src/agents/<algo_name>.ts` — lowercase, descriptive name.
-- **Tool files**: `src/tools/<tool_name>.ts` — lowercase, one tool per file.
-- **Core files**: `src/core/<module_name>.ts` — shared infrastructure.
-- **Constants**: `UPPER_SNAKE_CASE` (e.g., `DEFAULT_MODEL`, `STATE_SHEET_NAME`).
-- **Private GAS functions**: Suffix with `_` (e.g., `getStateSheet_()`, `sendTelegramMessage_()`).
+**SAM** is the central registry sheet.
 
----
+### AgentManifest Tab
+Contains the configuration for algorithms.
+Columns: `agent_id` (e.g. `masteralgo`), `model`, `system_prompt`, `temperature`, `max_tool_calls`, `thinking_budget`.
 
-## Algos
+### Connections Tab
+Maps each `algoId` to the `tool_name` it possesses.
 
-### Analgo (Analysis Algorithm)
-
-| Property | Value |
-|---|---|
-| **File** | `src/agents/analgo.ts` |
-| **ID** | `analgo` |
-| **Model** | Inherits `DEFAULT_MODEL` (Gemini 2.0 Flash) |
-| **Purpose** | Break down complex user requests into logical, actionable steps. |
-| **Tools** | `calculator` |
-
-**System Prompt:**
-> You are the Analysis Algorithm (Analgo). Your job is to break down complex user requests into logical, actionable steps.
-
-**Tool-Calling Loop:**
-1. Receives user input + UID.
-2. Calls Gemini with system prompt and registered tools.
-3. If Gemini returns a `functionCall` → dispatches to the tool executor → feeds the result back.
-4. Repeats until Gemini returns a final text response (max 5 loops).
-5. Persists result via `state_manager`.
+### ToolRegistry Tab
+Contains the raw JSON schemas for tools.
+Columns: `tool_name`, `type` (`SCRIPT` or `AGENT`), `schema_json`.
 
 ---
 
-## Tools
+## Tool Execution Mapping
 
-### Calculator
-
-| Property | Value |
-|---|---|
-| **File** | `src/tools/calculator.ts` |
-| **Type** | Script tool (no LLM) |
-| **Operations** | `add`, `subtract`, `multiply`, `divide` |
-| **Parameters** | `operation` (string), `a` (number), `b` (number) |
+When Gemini determines a tool needs to be called, `tool_runner.ts` intercepts it.
+- **SCRIPT** tools match string names exactly to local TypeScript functions (like `executeCalculator`).
+- **AGENT** tools trigger a recursive `runAlgo()` call, effectively passing execution to a sub-algo defined strictly in the SAM sheet.
 
 ---
 
-## Configuration
+## Multi-Bot Dispatch Architecture
 
-### Script Properties (set in GAS Project Settings)
+SAM4 operates via 5 core bots connected through Telegram webhooks. `main.ts` intercepts all requests and operates as a pure dispatcher:
 
-| Key | Description |
-|---|---|
-| `GEMINI_API_KEY` | Gemini API key for model calls |
-| `TELEGRAM_BOT_TOKEN` | Telegram bot token for webhook responses |
-| `STATE_SPREADSHEET_ID` | Google Sheet ID for state persistence |
-
-### Defaults (in `config.ts`)
-
-| Constant | Value | Notes |
+| Bot Token in Config | Target Algo | Use Case |
 |---|---|---|
-| `DEFAULT_MODEL` | `gemini-2.0-flash` | Individual algos can override via their config |
-| `DEFAULT_THINKING_BUDGET` | `0` | Set > 0 to enable thinking |
-| `STATE_SHEET_NAME` | `AgentState` | Sheet tab name for state data |
+| `MASTER_BOT_TOKEN` | `masteralgo` | Starts the central / main workflow. |
+| `GEM_BOT_TOKEN` | `gemalgo` | Used specifically for retrieving gems directly. |
+| `BUG_BOT_TOKEN` | `bugalgo` | For reporting explicit bugs. |
+| `FAIL_BOT_TOKEN` | `failalgo` | For reporting workflow failures. |
+| `TASK_BOT_TOKEN` | `taskalgo` | Dispatches task-oriented requests. |
+
+The webhook dispatcher pulls the token or "bot" identifier directly from the URL query params (`?bot=master` or `?token=...`) to route the message.
+
+### Multi-Message Support
+
+The transport layer (`transport_telegram.ts`) possesses a universal `sendReply` function. If `runAlgo` returns an array of multiple strings (e.g., `gemalgo` retrieving five gems), `sendReply` seamlessly fires them as five independent Telegram messages back sequentially.
 
 ---
 
-## Entry Point
+## Deployment & Setup
 
-**`src/main.ts`** — `doPost(e)` handles Telegram webhooks:
-
-1. Parses the incoming Telegram update.
-2. Generates a unique UID via `generateUid()`.
-3. Passes the user message to `runAnalgo(uid, text)`.
-4. Sends the result back via Telegram Bot API.
-5. Returns `200 OK` as JSON.
-
-A `testAnalgo()` function is included for manual testing from the GAS editor.
+1. Configure script properties for all 5 `*_BOT_TOKEN` keys along with `GEMINI_API_KEY`, `SAM_SHEET_ID`, and `STATE_SPREADSHEET_ID`.
+2. Define `masteralgo`, `gemalgo`, `bugalgo`, `failalgo`, and `taskalgo` inside the SAM sheet (AgentManifest tab).
+3. Push codebase via `clasp push`.
+4. Deploy the GAS Web App.
+5. Configure each Telegram bot webhook pointing to the GAS deployment URL featuring their specific target identity (`?bot=master`, `?bot=gem`, etc.).
 
 ---
 
-## State Schema (Google Sheet)
-
-| Column | Field | Type | Description |
-|---|---|---|---|
-| A | `uid` | string | Unique task identifier |
-| B | `agent_id` | string | Which algo owns this state |
-| C | `status` | enum | `pending` · `running` · `completed` · `error` |
-| D | `state_json` | JSON string | Serialised agent state/data |
-| E | `created_at` | ISO string | Creation timestamp |
-| F | `updated_at` | ISO string | Last update timestamp |
-
----
-
-## Deployment Checklist
-
-1. Set the three Script Properties in GAS Project Settings.
-2. `clasp push` to deploy all files.
-3. Deploy as Web App (Execute as: Me, Access: Anyone).
-4. Set Telegram webhook: `https://api.telegram.org/bot<TOKEN>/setWebhook?url=<WEB_APP_URL>`
-5. Send a message to the bot → Analgo responds.
-
----
-
-*Last updated: 2026-03-20*
+*End of Document*

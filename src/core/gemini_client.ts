@@ -7,6 +7,9 @@
  *  - Function declarations (tool calling)
  *  - Thinking budget (thinking_level)
  *  - Per-call model override
+ *  - Usage metadata extraction & DAILY_TOKENS tracking
+ *  - Hard stop when daily token budget is exceeded
+ *  - UrlFetchApp.fetchAll() for parallel tool execution
  */
 
 // ─── Types ──────────────────────────────────────────────────
@@ -43,6 +46,12 @@ interface GeminiRequest {
     generationConfig?: Record<string, any>;
 }
 
+interface GeminiUsageMetadata {
+    promptTokenCount?: number;
+    candidatesTokenCount?: number;
+    totalTokenCount?: number;
+}
+
 interface GeminiResponse {
     candidates?: {
         content: {
@@ -51,13 +60,14 @@ interface GeminiResponse {
         };
         finishReason: string;
     }[];
+    usageMetadata?: GeminiUsageMetadata;
     error?: { code: number; message: string; status: string };
 }
 
 // ─── Options ────────────────────────────────────────────────
 
 interface CallGeminiOptions {
-    /** Override the default model for this call. */
+    /** Override the default model for this call. Must use models/ prefix. */
     model?: string;
     /** System prompt / instruction. */
     systemPrompt?: string;
@@ -73,16 +83,72 @@ interface CallGeminiOptions {
     maxOutputTokens?: number;
 }
 
+// ─── Daily Token Tracking ───────────────────────────────────
+
+/**
+ * Reads the current DAILY_TOKENS count from Script Properties.
+ * Resets to 0 if the stored date is not today.
+ */
+function getDailyTokens_(): { count: number; date: string } {
+    const props = PropertiesService.getScriptProperties();
+    const storedDate = props.getProperty('DAILY_TOKENS_DATE') || '';
+    const today = new Date().toISOString().slice(0, 10); // YYYY-MM-DD
+
+    if (storedDate !== today) {
+        // New day — reset counter
+        props.setProperty('DAILY_TOKENS_DATE', today);
+        props.setProperty('DAILY_TOKENS', '0');
+        return { count: 0, date: today };
+    }
+
+    const count = parseInt(props.getProperty('DAILY_TOKENS') || '0', 10);
+    return { count, date: today };
+}
+
+/**
+ * Adds token usage to the daily counter.
+ */
+function addDailyTokens_(tokens: number): number {
+    const props = PropertiesService.getScriptProperties();
+    const current = getDailyTokens_();
+    const newTotal = current.count + tokens;
+
+    props.setProperty('DAILY_TOKENS', String(newTotal));
+    Logger.log(`[GEMINI_CLIENT] Daily tokens: ${newTotal} / ${DAILY_TOKEN_LIMIT}`);
+
+    return newTotal;
+}
+
+/**
+ * Throws if daily token budget is exceeded.
+ */
+function enforceDailyTokenLimit_(): void {
+    const { count } = getDailyTokens_();
+    if (count >= DAILY_TOKEN_LIMIT) {
+        throw new Error(
+            `[GEMINI_CLIENT] HARD STOP — Daily token limit reached (${count} / ${DAILY_TOKEN_LIMIT}). ` +
+            'No further model calls allowed today.'
+        );
+    }
+}
+
 // ─── Core Call ──────────────────────────────────────────────
 
 /**
  * Calls the Gemini API and returns the raw response object.
- * Handles headers, payload construction, and error logging.
+ * Handles headers, payload construction, error logging,
+ * usage tracking, and daily limit enforcement.
  */
 function callGemini(options: CallGeminiOptions): GeminiResponse {
+    // Enforce daily limit BEFORE making the call
+    enforceDailyTokenLimit_();
+
     const model = options.model || DEFAULT_MODEL;
     const apiKey = getGeminiApiKey();
-    const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`;
+
+    // Ensure model string uses models/ prefix in the URL
+    const modelPath = model.startsWith('models/') ? model : `models/${model}`;
+    const url = `https://generativelanguage.googleapis.com/v1beta/${modelPath}:generateContent?key=${apiKey}`;
 
     // Build request payload
     const payload: GeminiRequest = {
@@ -141,11 +207,57 @@ function callGemini(options: CallGeminiOptions): GeminiResponse {
             throw new Error(`Gemini API error: ${parsed.error.message}`);
         }
 
+        // Track usage metadata
+        if (parsed.usageMetadata?.totalTokenCount) {
+            addDailyTokens_(parsed.usageMetadata.totalTokenCount);
+        }
+
         return parsed;
     } catch (error) {
         Logger.log(`[GEMINI_CLIENT] Request failed: ${error}`);
         throw error;
     }
+}
+
+// ─── Parallel Tool Execution ────────────────────────────────
+
+/**
+ * Executes multiple tool calls in parallel using UrlFetchApp.fetchAll().
+ * Each request is a separate fetch; results are returned in order.
+ *
+ * This is used when Gemini returns multiple functionCalls in one
+ * response and the tools happen to be HTTP-based.
+ *
+ * @param requests - Array of { url, options } for each tool call.
+ * @returns Array of parsed JSON responses (or error objects).
+ */
+function fetchAllParallel_(
+    requests: { url: string; options: GoogleAppsScript.URL_Fetch.URLFetchRequestOptions }[]
+): any[] {
+    const fetchRequests = requests.map((r) => ({
+        url: r.url,
+        ...r.options,
+        muteHttpExceptions: true,
+    }));
+
+    const responses = UrlFetchApp.fetchAll(fetchRequests);
+
+    return responses.map((resp, i) => {
+        try {
+            const code = resp.getResponseCode();
+            const body = resp.getContentText();
+
+            if (code !== 200) {
+                Logger.log(`[GEMINI_CLIENT] fetchAll[${i}] HTTP ${code}: ${body}`);
+                return { error: `HTTP ${code}` };
+            }
+
+            return JSON.parse(body);
+        } catch (err) {
+            Logger.log(`[GEMINI_CLIENT] fetchAll[${i}] parse error: ${err}`);
+            return { error: String(err) };
+        }
+    });
 }
 
 // ─── Helpers ────────────────────────────────────────────────
@@ -180,6 +292,13 @@ function getFunctionCallsFromResponse(
             name: p.functionCall!.name,
             args: p.functionCall!.args,
         }));
+}
+
+/**
+ * Extracts usage metadata from a GeminiResponse.
+ */
+function getUsageMetadata(response: GeminiResponse): GeminiUsageMetadata | null {
+    return response.usageMetadata || null;
 }
 
 /**

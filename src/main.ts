@@ -1,13 +1,8 @@
 /**
- * main.ts — Entry point for the SAM4 agent system.
+ * main.ts — Pure dispatcher for the SAM4 multi-bot system.
  *
- * Exposes `doPost(e)` as a Telegram webhook handler.
- * Flow:
- *  1. Parse the incoming Telegram update.
- *  2. Generate a UID for the task.
- *  3. Pass the user message to Analgo.
- *  4. Send the response back to Telegram.
- *  5. Return 200 OK to Telegram.
+ * Routes incoming Telegram webhooks to the appropriate SAM algorithm
+ * based on the bot token (provided in the URL query params).
  */
 
 // ─── Telegram Types ─────────────────────────────────────────
@@ -23,97 +18,77 @@ interface TelegramUpdate {
     };
 }
 
-// ─── Webhook Handler ────────────────────────────────────────
+// ─── Webhook Dispatcher ─────────────────────────────────────
 
-/**
- * doPost is the GAS web app entry point triggered by Telegram webhooks.
- * It must return a TextOutput to acknowledge receipt.
- */
-function doPost(
-    e: GoogleAppsScript.Events.DoPost
-): GoogleAppsScript.Content.TextOutput {
+function doPost(e: GoogleAppsScript.Events.DoPost): GoogleAppsScript.Content.TextOutput {
     try {
         const update: TelegramUpdate = JSON.parse(e.postData.contents);
 
-        // Only handle text messages
         if (!update.message?.text) {
-            return ContentService.createTextOutput(
-                JSON.stringify({ ok: true, skipped: 'no text message' })
-            ).setMimeType(ContentService.MimeType.JSON);
+            return ContentService.createTextOutput(JSON.stringify({ ok: true, skipped: 'no text' }))
+                .setMimeType(ContentService.MimeType.JSON);
         }
 
         const chatId = update.message.chat.id;
-        const userText = update.message.text;
+        const text = update.message.text;
         const userName = update.message.from.first_name || 'User';
 
-        Logger.log(`[MAIN] Incoming from ${userName} (chat ${chatId}): ${userText}`);
+        // Extract bot identifier from webhook URL query parameters
+        // E.g., ?bot=master or ?token=12345
+        const urlToken = e.parameter.token;
+        const urlBot = e.parameter.bot;
 
-        // Generate unique task ID
+        let botToken = '';
+        let algoId = '';
+
+        if (urlToken === getMasterBotToken() || urlBot === 'master') {
+            botToken = getMasterBotToken();
+            algoId = 'masteralgo';
+        } else if (urlToken === getGemBotToken() || urlBot === 'gem') {
+            botToken = getGemBotToken();
+            algoId = 'gemalgo';
+        } else if (urlToken === getBugBotToken() || urlBot === 'bug') {
+            botToken = getBugBotToken();
+            algoId = 'bugalgo';
+        } else if (urlToken === getFailBotToken() || urlBot === 'fail') {
+            botToken = getFailBotToken();
+            algoId = 'failalgo';
+        } else if (urlToken === getTaskBotToken() || urlBot === 'task') {
+            botToken = getTaskBotToken();
+            algoId = 'taskalgo';
+        } else {
+            // Default to masteralgo if undefined
+            botToken = getMasterBotToken();
+            algoId = 'masteralgo';
+        }
+
+        Logger.log(`[MAIN] Dispatching ${userName} to ${algoId}`);
+
         const uid = generateUid();
-        Logger.log(`[MAIN] UID: ${uid}`);
+        const results = runAlgo(algoId, uid, text);
 
-        // Run the analysis algorithm
-        const result = runAnalgo(uid, userText);
+        sendReply(botToken, chatId, results);
 
-        // Send the response back to Telegram
-        sendTelegramMessage_(chatId, result);
+        return ContentService.createTextOutput(JSON.stringify({ ok: true }))
+            .setMimeType(ContentService.MimeType.JSON);
 
-        return ContentService.createTextOutput(
-            JSON.stringify({ ok: true, uid })
-        ).setMimeType(ContentService.MimeType.JSON);
-    } catch (error) {
-        Logger.log(`[MAIN] Fatal error: ${error}`);
-
-        return ContentService.createTextOutput(
-            JSON.stringify({ ok: false, error: String(error) })
-        ).setMimeType(ContentService.MimeType.JSON);
+    } catch (err) {
+        Logger.log(`[MAIN] Fatal dispatcher error: ${err}`);
+        return ContentService.createTextOutput(JSON.stringify({ ok: false, error: String(err) }))
+            .setMimeType(ContentService.MimeType.JSON);
     }
 }
 
-// ─── Telegram API ───────────────────────────────────────────
+// ─── Manual Tests ───────────────────────────────────────────
 
-/**
- * Sends a message to a Telegram chat. Uses the Telegram Bot API.
- */
-function sendTelegramMessage_(chatId: number, text: string): void {
-    const token = getTelegramBotToken();
-    const url = `https://api.telegram.org/bot${token}/sendMessage`;
-
-    const payload = {
-        chat_id: chatId,
-        text: text,
-        parse_mode: 'Markdown',
-    };
-
-    const options: GoogleAppsScript.URL_Fetch.URLFetchRequestOptions = {
-        method: 'post',
-        contentType: 'application/json',
-        payload: JSON.stringify(payload),
-        muteHttpExceptions: true,
-    };
-
-    const response = UrlFetchApp.fetch(url, options);
-    const statusCode = response.getResponseCode();
-
-    if (statusCode !== 200) {
-        Logger.log(`[TELEGRAM] Failed to send message: HTTP ${statusCode} — ${response.getContentText()}`);
-    }
-}
-
-// ─── Manual Test ────────────────────────────────────────────
-
-/**
- * A convenience function to test Analgo manually from the
- * GAS editor without needing a Telegram webhook.
- */
-function testAnalgo(): void {
+function testMasterAlgo(): void {
     const uid = generateUid();
-    const testInput = 'What is 42 multiplied by 13, and then break down the steps to build a simple API?';
+    const result = runAlgo('masteralgo', uid, 'What is 42 * 10?');
+    Logger.log(JSON.stringify(result, null, 2));
+}
 
-    Logger.log(`[TEST] UID: ${uid}`);
-    Logger.log(`[TEST] Input: ${testInput}`);
-
-    const result = runAnalgo(uid, testInput);
-
-    Logger.log(`[TEST] Result:\n${result}`);
+function testGemAlgo(): void {
+    const uid = generateUid();
+    const result = runAlgo('gemalgo', uid, 'Find some frontend design gems');
+    Logger.log(JSON.stringify(result, null, 2));
 }
