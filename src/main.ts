@@ -18,12 +18,33 @@ interface TelegramUpdate {
     };
 }
 
+// ─── Telemetry ────────────────────────────────────────────────
+
+function telemetryLog_(updateId: string, status: string, info: string): void {
+    try {
+        const ss = typeof SpreadsheetApp !== 'undefined' ? SpreadsheetApp.openById(getStateSpreadsheetId()) : null;
+        if (!ss) return;
+        
+        let sheet = ss.getSheetByName('WebhookLogs');
+        if (!sheet) {
+            sheet = ss.insertSheet('WebhookLogs');
+            sheet.appendRow(['Timestamp', 'Update ID', 'Status', 'Info']);
+            sheet.setFrozenRows(1);
+        }
+        
+        // Truncate long strings for neatness
+        const cleanInfo = info.length > 500 ? info.substring(0, 500) + "..." : info;
+        sheet.appendRow([new Date().toISOString(), updateId, status, cleanInfo]);
+    } catch (_) { /* Fail silently to not crash the webhook */ }
+}
+
 // ─── Webhook Dispatcher ─────────────────────────────────────
 
 function doPost(e: GoogleAppsScript.Events.DoPost): GoogleAppsScript.Content.TextOutput {
     try {
         // --- 1. Catch Malformed Webhooks ---
         if (!e || !e.postData || !e.postData.contents) {
+            telemetryLog_('UNKNOWN', 'MALFORMED_PING', 'Telegram sent empty or non-JSON POST data.');
             return ContentService.createTextOutput("OK");
         }
 
@@ -37,11 +58,9 @@ function doPost(e: GoogleAppsScript.Events.DoPost): GoogleAppsScript.Content.Tex
         }
 
         // --- 3. Webhook Deduplication (Crucial Fix) ---
-        // MUST return bare ContentService. Google Apps Script POST requests
-        // return raw HTTP 200 OKs ONLY for unformatted ContentService text.
-        // HtmlService and MimeType.JSON forcibly trigger 302 redirects which Telegram drops.
         const cache = CacheService.getScriptCache();
         if (cache.get(`sam_update_${updateId}`)) {
+            telemetryLog_(updateId, 'DUPLICATE_SKIPPED', 'Returned OK. If Telegram loops after this row, they rejected the Google response.');
             Logger.log(`[MAIN] Skipping duplicate update_id: ${updateId}`);
             return ContentService.createTextOutput("OK");
         }
@@ -51,6 +70,7 @@ function doPost(e: GoogleAppsScript.Events.DoPost): GoogleAppsScript.Content.Tex
 
         // --- 4. Skip Non-Text Messages Safely ---
         if (!update.message?.text) {
+            telemetryLog_(updateId, 'IGNORED', `Ignored non-text message payload.`);
             return ContentService.createTextOutput("OK");
         }
 
@@ -89,6 +109,8 @@ function doPost(e: GoogleAppsScript.Events.DoPost): GoogleAppsScript.Content.Tex
         // --- 6. Enqueue ALGO ---
         const uid = typeof generateUid === 'function' ? generateUid() : String(new Date().getTime());
         
+        telemetryLog_(updateId, 'ENQUEUED', `Routed to ${algoId} for User ${userName}: "${text}"`);
+        
         enqueueTask({
             uid: uid,
             botToken: botToken,
@@ -103,6 +125,7 @@ function doPost(e: GoogleAppsScript.Events.DoPost): GoogleAppsScript.Content.Tex
         return ContentService.createTextOutput("OK");
 
     } catch (err) {
+        telemetryLog_('ERROR', 'FATAL_CRASH', String(err));
         Logger.log(`[MAIN] Fatal dispatcher error: ${err}`);
         try {
             const adminChat = getAdminChatId();
@@ -124,6 +147,34 @@ function testGemAlgo(): void {
     const uid = generateUid();
     const result = runAlgo('gemalgo', uid, 'Find some frontend design gems');
     Logger.log(JSON.stringify(result, null, 2));
+}
+
+// ─── Webhook Diagnostic Tool ───────────────────────────────
+
+/**
+ * Run this function from the Apps Script editor to get EXACTLY 
+ * why Telegram thinks the webhook failed and why it's retrying.
+ */
+function debugWebhookStatus(): void {
+    const token = getMasterBotToken();
+    const url = `https://api.telegram.org/bot${token}/getWebhookInfo`;
+    
+    try {
+        const response = UrlFetchApp.fetch(url, { method: 'get' });
+        const data = JSON.parse(response.getContentText());
+        Logger.log(`\n========== TELEGRAM WEBHOOK INTERNAL STATUS ==========\n`);
+        Logger.log(JSON.stringify(data.result, null, 2));
+        
+        if (data?.result?.last_error_message) {
+            Logger.log(`\n🚨 TELEGRAM'S EXACT COMPLAINT: ${data.result.last_error_message}`);
+            Logger.log(`🚨 TIME OF ERROR: ${new Date(data.result.last_error_date * 1000).toLocaleString()}`);
+        } else {
+            Logger.log(`\n✅ Telegram reports NO webhook delivery errors on this URL!`);
+        }
+        Logger.log(`\n======================================================\n`);
+    } catch (e) {
+        Logger.log(`[DEBUG] Failed to fetch webhook info from Telegram: ${e}`);
+    }
 }
 
 // ─── Utility to Clear Telegram Webhook Queue ───────────────
