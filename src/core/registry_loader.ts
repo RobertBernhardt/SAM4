@@ -17,7 +17,7 @@ interface ToolDefinition {
     schema: any;
 }
 
-const CACHE_TTL = 21600; // 6 hours
+const CACHE_TTL = 60; // 60 seconds (better for development)
 
 function getSamSpreadsheet_(): GoogleAppsScript.Spreadsheet.Spreadsheet {
     return SpreadsheetApp.openById(getSamSheetId());
@@ -25,7 +25,7 @@ function getSamSpreadsheet_(): GoogleAppsScript.Spreadsheet.Spreadsheet {
 
 function getAlgoConfig(algoId: string): AlgoConfig {
     const cache = CacheService.getScriptCache();
-    const cacheKey = `SAM_ALGO_V5_${algoId}`;
+    const cacheKey = `SAM_ALGO_V6_${algoId}`;
     if (cache) {
         const cached = cache.get(cacheKey);
         if (cached) return JSON.parse(cached);
@@ -74,7 +74,7 @@ function getAlgoConfig(algoId: string): AlgoConfig {
 
 function getTools(algoId: string): ToolDefinition[] {
     const cache = CacheService.getScriptCache();
-    const cacheKey = `SAM_TOOLS_V4_${algoId}`; 
+    const cacheKey = `SAM_TOOLS_V5_${algoId}`;
     if (cache) {
         const cached = cache.get(cacheKey);
         if (cached) return JSON.parse(cached);

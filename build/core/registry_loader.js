@@ -1,13 +1,13 @@
 /**
  * registry_loader.ts — Loads algo configs and tools from the SAM Google Sheet.
  */
-const CACHE_TTL = 21600; // 6 hours
+const CACHE_TTL = 60; // 60 seconds (better for development)
 function getSamSpreadsheet_() {
     return SpreadsheetApp.openById(getSamSheetId());
 }
 function getAlgoConfig(algoId) {
     const cache = CacheService.getScriptCache();
-    const cacheKey = `SAM_ALGO_V5_${algoId}`;
+    const cacheKey = `SAM_ALGO_V6_${algoId}`;
     if (cache) {
         const cached = cache.get(cacheKey);
         if (cached)
@@ -55,7 +55,7 @@ function getAlgoConfig(algoId) {
 }
 function getTools(algoId) {
     const cache = CacheService.getScriptCache();
-    const cacheKey = `SAM_TOOLS_V4_${algoId}`;
+    const cacheKey = `SAM_TOOLS_V5_${algoId}`;
     if (cache) {
         const cached = cache.get(cacheKey);
         if (cached)
