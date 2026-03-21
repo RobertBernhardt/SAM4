@@ -65,6 +65,8 @@ const DAILY_TOKEN_LIMIT = 1000000;
 const STATE_SHEET_NAME = 'AgentState';
 /** The sheet name for bug/fail reports. */
 const ISSUES_SHEET_NAME = 'Issues';
+/** The sheet name for queued background jobs. */
+const QUEUE_SHEET_NAME = 'Queue';
 /** The spreadsheet ID for agent state (set in Script Properties). */
 function getStateSpreadsheetId() {
     return getScriptProp_('STATE_SPREADSHEET_ID');

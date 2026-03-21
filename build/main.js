@@ -7,26 +7,51 @@
 // ─── Webhook Dispatcher ─────────────────────────────────────
 function doPost(e) {
     try {
+        // --- 1. Catch Malformed Webhooks ---
+        if (!e || !e.postData || !e.postData.contents) {
+            return ContentService.createTextOutput(JSON.stringify({}))
+                .setMimeType(ContentService.MimeType.JSON);
+        }
         const update = JSON.parse(e.postData.contents);
-        // --- Webhook Deduplication ---
-        // If we map the updateId, return empty JSON so Telegram parses it as a no-action 200 HTTP OK.
         const updateId = String(update.update_id);
+        // --- 2. Safely Extract Chat ID ---
+        let chatId = 0;
+        if (update.message?.chat?.id) {
+            chatId = update.message.chat.id;
+        }
+        // --- 3. Webhook Deduplication (Crucial Fix) ---
+        // Instead of returning plain text "OK", which Telegram rejects,
+        // we return a valid JSON dummy method (typing action) to forcefully acknowledge the webhook!
         const cache = CacheService.getScriptCache();
         if (cache.get(`sam_update_${updateId}`)) {
             Logger.log(`[MAIN] Skipping duplicate update_id: ${updateId}`);
-            return HtmlService.createHtmlOutput('OK');
+            if (chatId) {
+                return ContentService.createTextOutput(JSON.stringify({
+                    method: "sendChatAction",
+                    chat_id: chatId,
+                    action: "typing"
+                })).setMimeType(ContentService.MimeType.JSON);
+            }
+            return ContentService.createTextOutput(JSON.stringify({}))
+                .setMimeType(ContentService.MimeType.JSON);
         }
         // Cache this update ID for 6 hours
         cache.put(`sam_update_${updateId}`, 'true', 21600);
-        // ------------------------------
+        // --- 4. Skip Non-Text Messages Safely ---
         if (!update.message?.text) {
-            return HtmlService.createHtmlOutput('OK');
+            if (chatId) {
+                return ContentService.createTextOutput(JSON.stringify({
+                    method: "sendChatAction",
+                    chat_id: chatId,
+                    action: "typing"
+                })).setMimeType(ContentService.MimeType.JSON);
+            }
+            return ContentService.createTextOutput(JSON.stringify({}))
+                .setMimeType(ContentService.MimeType.JSON);
         }
-        const chatId = update.message.chat.id;
         const text = update.message.text;
-        const userName = update.message.from.first_name || 'User';
-        // Extract bot identifier from webhook URL query parameters
-        // E.g., ?bot=master or ?token=12345
+        const userName = update.message.from?.first_name || 'User';
+        // --- 5. Routing ---
         const urlToken = e.parameter.token;
         const urlBot = e.parameter.bot;
         let botToken = '';
@@ -52,31 +77,38 @@ function doPost(e) {
             algoId = 'taskalgo';
         }
         else {
-            // Default to masteralgo if undefined
             botToken = getMasterBotToken();
             algoId = 'masteralgo';
         }
         Logger.log(`[MAIN] Dispatching ${userName} to ${algoId}`);
-        const uid = generateUid();
-        const results = runAlgo(algoId, uid, text);
-        sendReply(botToken, chatId, results);
-        // -------------------------------------------------------------
-        // IMPORTANT: We use HtmlService instead of ContentService!
-        // ContentService triggers an HTTP 302 Redirect before returning OK,
-        // which Telegram aggressively treats as a failed Webhook and queues forever.
-        // HtmlService returns a raw HTTP 200 OK directly.
-        // -------------------------------------------------------------
-        return HtmlService.createHtmlOutput('OK');
+        // --- 6. Enqueue ALGO ---
+        const uid = typeof generateUid === 'function' ? generateUid() : String(new Date().getTime());
+        enqueueTask({
+            uid: uid,
+            botToken: botToken,
+            algoId: algoId,
+            chatId: chatId,
+            text: text,
+            userName: userName
+        });
+        // --- 7. Direct Webhook Reply ---
+        // Flawlessly close the Telegram webhook loop by immediately 
+        // responding with a typing indicator, giving processQueue time to work!
+        return ContentService.createTextOutput(JSON.stringify({
+            method: "sendChatAction",
+            chat_id: chatId,
+            action: "typing"
+        })).setMimeType(ContentService.MimeType.JSON);
     }
     catch (err) {
         Logger.log(`[MAIN] Fatal dispatcher error: ${err}`);
-        // Send the actual error to admin so it's visible on Telegram
         try {
             const adminChat = getAdminChatId();
             sendReply(getMasterBotToken(), adminChat, [`🚨 SAM4 Fatal Error:\n${String(err)}`]);
         }
-        catch (_) { /* last resort — ignore if even this fails */ }
-        return HtmlService.createHtmlOutput('OK');
+        catch (_) { /* ignore */ }
+        return ContentService.createTextOutput(JSON.stringify({}))
+            .setMimeType(ContentService.MimeType.JSON);
     }
 }
 // ─── Manual Tests ───────────────────────────────────────────
