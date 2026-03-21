@@ -7,7 +7,7 @@ function getSamSpreadsheet_() {
 }
 function getAlgoConfig(algoId) {
     const cache = CacheService.getScriptCache();
-    const cacheKey = `SAM_ALGO_V3_${algoId}`; // V2 forces cache refresh
+    const cacheKey = `SAM_ALGO_V4_${algoId}`;
     if (cache) {
         const cached = cache.get(cacheKey);
         if (cached)
@@ -19,17 +19,26 @@ function getAlgoConfig(algoId) {
         throw new Error('[REGISTRY] AgentManifest tab not found in SAM sheet.');
     const data = sheet.getDataRange().getValues();
     let config = null;
-    // Columns: 0:agent_id, 1:model, 2:system_prompt, 3:temperature, 4:max_tool_calls, 5:thinking_budget
+    // Actual columns: A:agent_id, B:system_prompt, C:model_id, D:temperature, E:thinking_level, F:requires_critique, G:critic_id
     for (let i = 1; i < data.length; i++) {
         const row = data[i];
         if (String(row[0]).trim() === algoId) {
+            // Map thinking_level string (e.g. "MEDIUM") to a token budget number
+            const thinkingLevel = String(row[4] || '').trim().toUpperCase();
+            let thinkingBudget = 0;
+            if (thinkingLevel === 'LOW')
+                thinkingBudget = 1024;
+            else if (thinkingLevel === 'MEDIUM')
+                thinkingBudget = 8192;
+            else if (thinkingLevel === 'HIGH')
+                thinkingBudget = 24576;
             config = {
                 algoId: String(row[0]).trim(),
-                model: String(row[1] || DEFAULT_MODEL).trim(),
-                systemPrompt: String(row[2] || '').trim(),
+                systemPrompt: String(row[1] || '').trim(),
+                model: String(row[2] || DEFAULT_MODEL).trim(),
                 temperature: Number(row[3]) || 0.5,
-                maxToolCalls: Number(row[4]) || 5,
-                thinkingBudget: Number(row[5]) || 0
+                maxToolCalls: 5,
+                thinkingBudget: thinkingBudget
             };
             break;
         }
@@ -41,12 +50,12 @@ function getAlgoConfig(algoId) {
     }
     if (cache)
         cache.put(cacheKey, JSON.stringify(config), CACHE_TTL);
-    Logger.log(`[REGISTRY] Loaded config for algo: ${algoId}`);
+    Logger.log(`[REGISTRY] Loaded config for algo: ${algoId}, model: ${config.model}`);
     return config;
 }
 function getTools(algoId) {
     const cache = CacheService.getScriptCache();
-    const cacheKey = `SAM_TOOLS_V3_${algoId}`;
+    const cacheKey = `SAM_TOOLS_V4_${algoId}`;
     if (cache) {
         const cached = cache.get(cacheKey);
         if (cached)

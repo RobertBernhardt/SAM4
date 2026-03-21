@@ -105,6 +105,10 @@ function callGemini(options) {
         const body = response.getContentText();
         if (statusCode !== 200) {
             Logger.log(`[GEMINI_CLIENT] HTTP ${statusCode}: ${body}`);
+            // If it's a 404, the model name might be invalid
+            if (statusCode === 404) {
+                throw new Error(`Gemini API returned HTTP 404. This usually means the model ID is invalid. Model requested: "${modelPath}"`);
+            }
             throw new Error(`Gemini API returned HTTP ${statusCode}`);
         }
         const parsed = JSON.parse(body);
