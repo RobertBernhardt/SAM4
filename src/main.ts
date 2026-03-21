@@ -24,6 +24,19 @@ function doPost(e: GoogleAppsScript.Events.DoPost): GoogleAppsScript.Content.Tex
     try {
         const update: TelegramUpdate = JSON.parse(e.postData.contents);
 
+        // --- Webhook Deduplication ---
+        // Telegram often resends Webhooks if the queue is backed up or it didn't get a fast enough response.
+        // If we process the same update_id twice, the bot duplicates responses.
+        const updateId = String(update.update_id);
+        const cache = CacheService.getScriptCache();
+        if (cache.get(`sam_update_${updateId}`)) {
+            Logger.log(`[MAIN] Skipping duplicate update_id: ${updateId}`);
+            return ContentService.createTextOutput("OK");
+        }
+        // Cache this update ID for 6 hours
+        cache.put(`sam_update_${updateId}`, 'true', 21600);
+        // ------------------------------
+
         if (!update.message?.text) {
             return ContentService.createTextOutput("OK");
         }
