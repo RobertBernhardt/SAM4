@@ -25,8 +25,7 @@ function doPost(e: GoogleAppsScript.Events.DoPost): GoogleAppsScript.Content.Tex
         const update: TelegramUpdate = JSON.parse(e.postData.contents);
 
         if (!update.message?.text) {
-            return ContentService.createTextOutput(JSON.stringify({ ok: true, skipped: 'no text' }))
-                .setMimeType(ContentService.MimeType.JSON);
+            return ContentService.createTextOutput("OK");
         }
 
         const chatId = update.message.chat.id;
@@ -69,8 +68,9 @@ function doPost(e: GoogleAppsScript.Events.DoPost): GoogleAppsScript.Content.Tex
 
         sendReply(botToken, chatId, results);
 
-        return ContentService.createTextOutput(JSON.stringify({ ok: true }))
-            .setMimeType(ContentService.MimeType.JSON);
+        // Telegram needs a simple HTTP 200 OK plain text acknowledgment. 
+        // Returning JSON without a "method" field makes Telegram think the response is malformed, so it retries.
+        return ContentService.createTextOutput("OK");
 
     } catch (err) {
         Logger.log(`[MAIN] Fatal dispatcher error: ${err}`);
@@ -79,8 +79,8 @@ function doPost(e: GoogleAppsScript.Events.DoPost): GoogleAppsScript.Content.Tex
             const adminChat = getAdminChatId();
             sendReply(getMasterBotToken(), adminChat, [`🚨 SAM4 Fatal Error:\n${String(err)}`]);
         } catch (_) { /* last resort — ignore if even this fails */ }
-        return ContentService.createTextOutput(JSON.stringify({ ok: false, error: String(err) }))
-            .setMimeType(ContentService.MimeType.JSON);
+        
+        return ContentService.createTextOutput("OK");
     }
 }
 
