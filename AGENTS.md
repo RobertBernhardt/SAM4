@@ -74,6 +74,16 @@ The webhook dispatcher pulls the token or "bot" identifier directly from the URL
 
 The transport layer (`transport_telegram.ts`) possesses a universal `sendReply` function. If `runAlgo` returns an array of multiple strings (e.g., `gemalgo` retrieving five gems), `sendReply` seamlessly fires them as five independent Telegram messages back sequentially.
 
+### Cloudflare Webhook Proxy (The 302 Shield)
+
+Google Apps Script unconditionally responds to POST requests with an HTTP 302 Redirect. Telegram Webhooks categorically reject 302 redirects, leading to an infinite retry death-loop.
+
+To solve this natively without queues, **SAM4 is permanently deployed behind a free Cloudflare Worker proxy**. 
+1. Telegram sends the webhook payload to the Cloudflare Worker (e.g., `https://sam-telegram-proxy...workers.dev/?bot=master`).
+2. Cloudflare receives the POST, calls `ctx.waitUntil(fetch(GAS_URL))` to securely pass the payload to Google Apps Script in the background.
+3. Cloudflare instantly returns a `200 OK` to Telegram within 50ms.
+4. Google Apps Script runs perfectly synchronously in the background (allowed up to its 6-minute internal hard cap), completely disconnected from Telegram's stringent 60-second webhook timeout.
+
 ---
 
 ## Deployment & Setup
@@ -81,8 +91,9 @@ The transport layer (`transport_telegram.ts`) possesses a universal `sendReply` 
 1. Configure script properties for all 5 `*_BOT_TOKEN` keys along with `GEMINI_API_KEY`, `SAM_SHEET_ID`, and `STATE_SPREADSHEET_ID`.
 2. Define `masteralgo`, `gemalgo`, `bugalgo`, `failalgo`, and `taskalgo` inside the SAM sheet (AgentManifest tab).
 3. Push codebase via `clasp push`.
-4. Deploy the GAS Web App.
-5. Configure each Telegram bot webhook pointing to the GAS deployment URL featuring their specific target identity (`?bot=master`, `?bot=gem`, etc.).
+4. Deploy the GAS Web App to generate your `/exec` URL.
+5. Create a Cloudflare Worker that forwards POST requests via `ctx.waitUntil(fetch(GAS_URL))` to your new `/exec` URL.
+6. Configure each Telegram bot webhook pointing to the **Cloudflare Worker URL**, featuring their specific target identity (`?bot=master`, `?bot=gem`, etc.).
 
 ---
 

@@ -83,19 +83,17 @@ function doPost(e) {
             algoId = 'masteralgo';
         }
         Logger.log(`[MAIN] Dispatching ${userName} to ${algoId}`);
-        // --- 6. Enqueue ALGO ---
+        // --- 6. Execute ALGO Synchronously ---
         const uid = typeof generateUid === 'function' ? generateUid() : String(new Date().getTime());
-        telemetryLog_(updateId, 'ENQUEUED', `Routed to ${algoId} for User ${userName}: "${text}"`);
-        enqueueTask({
-            uid: uid,
-            botToken: botToken,
-            algoId: algoId,
-            chatId: chatId,
-            text: text,
-            userName: userName
-        });
-        // --- 7. Direct Webhook Reply ---
-        // Flawlessly close the Telegram webhook loop natively.
+        telemetryLog_(updateId, 'EXECUTING_SYNC', `Routed to ${algoId} for User ${userName}: "${text}"`);
+        // Let Google Apps script take its sweet time (up to 6 minutes) 
+        // because Cloudflare intercepts and instantly shields Telegram!
+        const results = runAlgo(algoId, uid, text);
+        sendReply(botToken, chatId, results);
+        // --- 7. Ghost Reply ---
+        // We explicitly tell Google to finish. Cloudflare will catch whatever 
+        // 302 garbage Google throws and safely drop it.
+        telemetryLog_(updateId, 'SUCCESS', 'Script completely finished the synchronous run.');
         return ContentService.createTextOutput("OK");
     }
     catch (err) {
