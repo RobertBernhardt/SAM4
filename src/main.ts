@@ -20,7 +20,7 @@ interface TelegramUpdate {
 
 // ─── Webhook Dispatcher ─────────────────────────────────────
 
-function doPost(e: GoogleAppsScript.Events.DoPost): GoogleAppsScript.Content.TextOutput {
+function doPost(e: GoogleAppsScript.Events.DoPost): GoogleAppsScript.HTML.HtmlOutput {
     try {
         const update: TelegramUpdate = JSON.parse(e.postData.contents);
 
@@ -30,16 +30,14 @@ function doPost(e: GoogleAppsScript.Events.DoPost): GoogleAppsScript.Content.Tex
         const cache = CacheService.getScriptCache();
         if (cache.get(`sam_update_${updateId}`)) {
             Logger.log(`[MAIN] Skipping duplicate update_id: ${updateId}`);
-            return ContentService.createTextOutput(JSON.stringify({}))
-                .setMimeType(ContentService.MimeType.JSON);
+            return HtmlService.createHtmlOutput('OK');
         }
         // Cache this update ID for 6 hours
         cache.put(`sam_update_${updateId}`, 'true', 21600);
         // ------------------------------
 
         if (!update.message?.text) {
-            return ContentService.createTextOutput(JSON.stringify({}))
-                .setMimeType(ContentService.MimeType.JSON);
+            return HtmlService.createHtmlOutput('OK');
         }
 
         const chatId = update.message.chat.id;
@@ -82,10 +80,13 @@ function doPost(e: GoogleAppsScript.Events.DoPost): GoogleAppsScript.Content.Tex
 
         sendReply(botToken, chatId, results);
 
-        // Telegram accepts `{}` payload when Content-Type is application/json
-        // as a successful webhook response. Plain text caused parsing rejections.
-        return ContentService.createTextOutput(JSON.stringify({}))
-            .setMimeType(ContentService.MimeType.JSON);
+        // -------------------------------------------------------------
+        // IMPORTANT: We use HtmlService instead of ContentService!
+        // ContentService triggers an HTTP 302 Redirect before returning OK,
+        // which Telegram aggressively treats as a failed Webhook and queues forever.
+        // HtmlService returns a raw HTTP 200 OK directly.
+        // -------------------------------------------------------------
+        return HtmlService.createHtmlOutput('OK');
 
     } catch (err) {
         Logger.log(`[MAIN] Fatal dispatcher error: ${err}`);
@@ -95,8 +96,7 @@ function doPost(e: GoogleAppsScript.Events.DoPost): GoogleAppsScript.Content.Tex
             sendReply(getMasterBotToken(), adminChat, [`🚨 SAM4 Fatal Error:\n${String(err)}`]);
         } catch (_) { /* last resort — ignore if even this fails */ }
         
-        return ContentService.createTextOutput(JSON.stringify({}))
-            .setMimeType(ContentService.MimeType.JSON);
+        return HtmlService.createHtmlOutput('OK');
     }
 }
 
