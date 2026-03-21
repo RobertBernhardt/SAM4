@@ -1,11 +1,5 @@
 /**
  * registry_loader.ts — Loads algo configs and tools from the SAM Google Sheet.
- *
- * Uses CacheService for efficient reads.
- * Sheets used:
- *  - AgentManifest: Algo definitions (model, prompt, etc.)
- *  - Connections: Maps Algos to Tools
- *  - ToolRegistry: Tool definitions and schemas
  */
 
 interface AlgoConfig {
@@ -25,17 +19,13 @@ interface ToolDefinition {
 
 const CACHE_TTL = 21600; // 6 hours
 
-// Helper to open SAM sheet using PropertiesService
 function getSamSpreadsheet_(): GoogleAppsScript.Spreadsheet.Spreadsheet {
     return SpreadsheetApp.openById(getSamSheetId());
 }
 
-/**
- * Fetches the Algo configuration from AgentManifest tab.
- */
 function getAlgoConfig(algoId: string): AlgoConfig {
     const cache = CacheService.getScriptCache();
-    const cacheKey = `SAM_ALGO_${algoId}`;
+    const cacheKey = `SAM_ALGO_V2_${algoId}`; // V2 forces cache refresh
     if (cache) {
         const cached = cache.get(cacheKey);
         if (cached) return JSON.parse(cached);
@@ -48,18 +38,17 @@ function getAlgoConfig(algoId: string): AlgoConfig {
     const data = sheet.getDataRange().getValues();
     let config: AlgoConfig | null = null;
 
-    // Assuming columns:
-    // A: algoId, B: model, C: systemPrompt, D: temperature, E: maxToolCalls, F: thinkingBudget
+    // Columns: 0:agent_id, 1:system_prompt, 2:model_id, 3:temperature, 4:thinking, 5:critique
     for (let i = 1; i < data.length; i++) {
         const row = data[i];
-        if (row[0] === algoId) {
+        if (String(row[0]).trim() === algoId) {
             config = {
                 algoId: String(row[0]).trim(),
-                model: String(row[1] || DEFAULT_MODEL).trim(),
-                systemPrompt: String(row[2] || '').trim(),
-                temperature: Number(row[3]) || 0.7,
-                maxToolCalls: Number(row[4]) || 5,
-                thinkingBudget: Number(row[5]) || 0
+                systemPrompt: String(row[1] || '').trim(),
+                model: String(row[2] || DEFAULT_MODEL).trim(),
+                temperature: Number(row[3]) || 0.5,
+                maxToolCalls: 5,
+                thinkingBudget: 0
             };
             break;
         }
@@ -76,12 +65,9 @@ function getAlgoConfig(algoId: string): AlgoConfig {
     return config;
 }
 
-/**
- * Looks up the Connections tab, then fetches raw JSON schemas from ToolRegistry tab.
- */
 function getTools(algoId: string): ToolDefinition[] {
     const cache = CacheService.getScriptCache();
-    const cacheKey = `SAM_TOOLS_${algoId}`;
+    const cacheKey = `SAM_TOOLS_V2_${algoId}`; 
     if (cache) {
         const cached = cache.get(cacheKey);
         if (cached) return JSON.parse(cached);
@@ -95,30 +81,35 @@ function getTools(algoId: string): ToolDefinition[] {
         throw new Error('[REGISTRY] Connections or ToolRegistry tab missing.');
     }
 
-    // 1. Get tool names for algoId from Connections (A: algoId, B: toolName)
     const connData = connSheet.getDataRange().getValues();
     const toolNames: string[] = [];
     for (let i = 1; i < connData.length; i++) {
-        if (connData[i][0] === algoId && connData[i][1]) {
+        if (String(connData[i][0]).trim() === algoId && connData[i][1]) {
             toolNames.push(String(connData[i][1]).trim());
         }
     }
 
-    // 2. Resolve schemas from ToolRegistry (A: toolName, B: type, C: schemaJSON)
     const regData = registrySheet.getDataRange().getValues();
     const tools: ToolDefinition[] = [];
 
     for (const tName of toolNames) {
         for (let j = 1; j < regData.length; j++) {
-            if (regData[j][0] === tName) {
+            if (String(regData[j][0]).trim() === tName) {
                 const typeRaw = String(regData[j][1]).trim().toUpperCase();
                 const type = (typeRaw === 'AGENT' || typeRaw === 'SCRIPT') ? typeRaw : 'SCRIPT';
-                let schema = {};
+                let schema: any = {};
+                
                 try {
-                    schema = JSON.parse(String(regData[j][2]));
+                    // JSON schema is in column D (index 3)
+                    const rawSchema = String(regData[j][3]).trim();
+                    if (rawSchema) schema = JSON.parse(rawSchema);
                 } catch (e) {
                     Logger.log(`[REGISTRY] Error parsing schema for tool ${tName}: ${e}`);
                 }
+
+                // inject description so engine.ts finds it
+                schema.description = String(regData[j][2]).trim();
+
                 tools.push({
                     name: tName,
                     type: type as 'SCRIPT' | 'AGENT',
