@@ -7,7 +7,7 @@ function getSamSpreadsheet_() {
 }
 function getAlgoConfig(algoId) {
     const cache = CacheService.getScriptCache();
-    const cacheKey = `SAM_ALGO_V4_${algoId}`;
+    const cacheKey = `SAM_ALGO_V5_${algoId}`;
     if (cache) {
         const cached = cache.get(cacheKey);
         if (cached)
