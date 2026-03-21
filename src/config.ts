@@ -47,6 +47,11 @@ function getTaskBotToken(): string {
     return getScriptProp_('TASK_BOT_TOKEN');
 }
 
+/** Admin chat ID for push automations */
+function getAdminChatId(): number {
+    return parseInt(getScriptProp_('ADMIN_CHAT_ID'), 10);
+}
+
 // ─── Model Defaults ─────────────────────────────────────────
 
 /**

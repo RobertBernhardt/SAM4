@@ -38,6 +38,10 @@ function getFailBotToken() {
 function getTaskBotToken() {
     return getScriptProp_('TASK_BOT_TOKEN');
 }
+/** Admin chat ID for push automations */
+function getAdminChatId() {
+    return parseInt(getScriptProp_('ADMIN_CHAT_ID'), 10);
+}
 // ─── Model Defaults ─────────────────────────────────────────
 /**
  * System-wide default model. Uses the required models/ prefix.
