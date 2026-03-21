@@ -52,10 +52,10 @@ function getAlgoConfig(algoId: string): AlgoConfig {
             let systemPromptRaw = String(row[1] || '').trim();
             
             // If the cell contains a Google Doc URL, dynamically read the entire document!
-            const docMatch = systemPromptRaw.match(/https:\/\/docs\.google\.com\/document\/d\/[-\w]{25,}/);
-            if (docMatch) {
+            const docMatch = systemPromptRaw.match(/\/d\/([-\w]{25,})/);
+            if (docMatch && docMatch[1]) {
                 try {
-                    systemPromptRaw = DocumentApp.openByUrl(docMatch[0]).getBody().getText();
+                    systemPromptRaw = DocumentApp.openById(docMatch[1]).getBody().getText();
                     Logger.log(`[REGISTRY] Successfully loaded system prompt from private Google Doc for ${String(row[0]).trim()}`);
                 } catch (e) {
                     Logger.log(`[REGISTRY] Error fetching Google Doc for ${String(row[0]).trim()}: ${e}. Falling back to raw text.`);
