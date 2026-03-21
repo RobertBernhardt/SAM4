@@ -32,9 +32,21 @@ function getAlgoConfig(algoId) {
                 thinkingBudget = 8192;
             else if (thinkingLevel === 'HIGH')
                 thinkingBudget = 24576;
+            let systemPromptRaw = String(row[1] || '').trim();
+            // If the cell contains a Google Doc URL, dynamically read the entire document!
+            const docMatch = systemPromptRaw.match(/https:\/\/docs\.google\.com\/document\/d\/[-\w]{25,}/);
+            if (docMatch) {
+                try {
+                    systemPromptRaw = DocumentApp.openByUrl(docMatch[0]).getBody().getText();
+                    Logger.log(`[REGISTRY] Successfully loaded system prompt from private Google Doc for ${String(row[0]).trim()}`);
+                }
+                catch (e) {
+                    Logger.log(`[REGISTRY] Error fetching Google Doc for ${String(row[0]).trim()}: ${e}. Falling back to raw text.`);
+                }
+            }
             config = {
                 algoId: String(row[0]).trim(),
-                systemPrompt: String(row[1] || '').trim(),
+                systemPrompt: systemPromptRaw,
                 model: String(row[2] || DEFAULT_MODEL).trim(),
                 temperature: Number(row[3]) || 0.5,
                 maxToolCalls: 5,
