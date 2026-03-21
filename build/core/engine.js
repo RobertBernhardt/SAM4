@@ -44,9 +44,12 @@ function runAlgo(algoId, uid, input) {
                         parameters: t.schema.parameters || { type: 'object', properties: {} }
                     }))
                 }] : [];
+            // Inject the current time so the LLM doesn't hallucinate it
+            const currentTimeStr = new Date().toString();
+            const injectedSystemPrompt = `${config.systemPrompt}\n\n[SYSTEM CLOCK: The current real-world time is ${currentTimeStr}]`;
             const options = {
                 model: config.model,
-                systemPrompt: config.systemPrompt,
+                systemPrompt: injectedSystemPrompt,
                 messages: state.data.history,
                 temperature: config.temperature,
                 thinkingBudget: config.thinkingBudget,
