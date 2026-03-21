@@ -53,7 +53,7 @@ function doPost(e: GoogleAppsScript.Events.DoPost): GoogleAppsScript.Content.Tex
         } else if (urlToken === getFailBotToken() || urlBot === 'fail') {
             botToken = getFailBotToken();
             algoId = 'failalgo';
-        } else if (urlToken === getTaskBotToken() || urlBot === 'task') {
+        } else if (urlBot === 'task') {
             botToken = getTaskBotToken();
             algoId = 'taskalgo';
         } else {
@@ -74,6 +74,11 @@ function doPost(e: GoogleAppsScript.Events.DoPost): GoogleAppsScript.Content.Tex
 
     } catch (err) {
         Logger.log(`[MAIN] Fatal dispatcher error: ${err}`);
+        // Send the actual error to admin so it's visible on Telegram
+        try {
+            const adminChat = getAdminChatId();
+            sendReply(getMasterBotToken(), adminChat, [`🚨 SAM4 Fatal Error:\n${String(err)}`]);
+        } catch (_) { /* last resort — ignore if even this fails */ }
         return ContentService.createTextOutput(JSON.stringify({ ok: false, error: String(err) }))
             .setMimeType(ContentService.MimeType.JSON);
     }

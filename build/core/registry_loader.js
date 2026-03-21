@@ -7,7 +7,7 @@ function getSamSpreadsheet_() {
 }
 function getAlgoConfig(algoId) {
     const cache = CacheService.getScriptCache();
-    const cacheKey = `SAM_ALGO_V2_${algoId}`; // V2 forces cache refresh
+    const cacheKey = `SAM_ALGO_V3_${algoId}`; // V2 forces cache refresh
     if (cache) {
         const cached = cache.get(cacheKey);
         if (cached)
@@ -19,17 +19,17 @@ function getAlgoConfig(algoId) {
         throw new Error('[REGISTRY] AgentManifest tab not found in SAM sheet.');
     const data = sheet.getDataRange().getValues();
     let config = null;
-    // Columns: 0:agent_id, 1:system_prompt, 2:model_id, 3:temperature, 4:thinking, 5:critique
+    // Columns: 0:agent_id, 1:model, 2:system_prompt, 3:temperature, 4:max_tool_calls, 5:thinking_budget
     for (let i = 1; i < data.length; i++) {
         const row = data[i];
         if (String(row[0]).trim() === algoId) {
             config = {
                 algoId: String(row[0]).trim(),
-                systemPrompt: String(row[1] || '').trim(),
-                model: String(row[2] || DEFAULT_MODEL).trim(),
+                model: String(row[1] || DEFAULT_MODEL).trim(),
+                systemPrompt: String(row[2] || '').trim(),
                 temperature: Number(row[3]) || 0.5,
-                maxToolCalls: 5,
-                thinkingBudget: 0
+                maxToolCalls: Number(row[4]) || 5,
+                thinkingBudget: Number(row[5]) || 0
             };
             break;
         }
@@ -46,7 +46,7 @@ function getAlgoConfig(algoId) {
 }
 function getTools(algoId) {
     const cache = CacheService.getScriptCache();
-    const cacheKey = `SAM_TOOLS_V2_${algoId}`;
+    const cacheKey = `SAM_TOOLS_V3_${algoId}`;
     if (cache) {
         const cached = cache.get(cacheKey);
         if (cached)
