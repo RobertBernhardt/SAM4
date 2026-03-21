@@ -24,8 +24,7 @@ function doPost(e: GoogleAppsScript.Events.DoPost): GoogleAppsScript.Content.Tex
     try {
         // --- 1. Catch Malformed Webhooks ---
         if (!e || !e.postData || !e.postData.contents) {
-            return ContentService.createTextOutput(JSON.stringify({}))
-                .setMimeType(ContentService.MimeType.JSON);
+            return ContentService.createTextOutput("OK");
         }
 
         const update: TelegramUpdate = JSON.parse(e.postData.contents);
@@ -38,20 +37,13 @@ function doPost(e: GoogleAppsScript.Events.DoPost): GoogleAppsScript.Content.Tex
         }
 
         // --- 3. Webhook Deduplication (Crucial Fix) ---
-        // Instead of returning plain text "OK", which Telegram rejects,
-        // we return a valid JSON dummy method (typing action) to forcefully acknowledge the webhook!
+        // MUST return bare ContentService. Google Apps Script POST requests
+        // return raw HTTP 200 OKs ONLY for unformatted ContentService text.
+        // HtmlService and MimeType.JSON forcibly trigger 302 redirects which Telegram drops.
         const cache = CacheService.getScriptCache();
         if (cache.get(`sam_update_${updateId}`)) {
             Logger.log(`[MAIN] Skipping duplicate update_id: ${updateId}`);
-            if (chatId) {
-                return ContentService.createTextOutput(JSON.stringify({
-                    method: "sendChatAction",
-                    chat_id: chatId,
-                    action: "typing"
-                })).setMimeType(ContentService.MimeType.JSON);
-            }
-            return ContentService.createTextOutput(JSON.stringify({}))
-                .setMimeType(ContentService.MimeType.JSON);
+            return ContentService.createTextOutput("OK");
         }
         
         // Cache this update ID for 6 hours
@@ -59,15 +51,7 @@ function doPost(e: GoogleAppsScript.Events.DoPost): GoogleAppsScript.Content.Tex
 
         // --- 4. Skip Non-Text Messages Safely ---
         if (!update.message?.text) {
-            if (chatId) {
-                return ContentService.createTextOutput(JSON.stringify({
-                    method: "sendChatAction",
-                    chat_id: chatId,
-                    action: "typing"
-                })).setMimeType(ContentService.MimeType.JSON);
-            }
-            return ContentService.createTextOutput(JSON.stringify({}))
-                .setMimeType(ContentService.MimeType.JSON);
+            return ContentService.createTextOutput("OK");
         }
 
         const text = update.message.text;
@@ -115,13 +99,8 @@ function doPost(e: GoogleAppsScript.Events.DoPost): GoogleAppsScript.Content.Tex
         });
 
         // --- 7. Direct Webhook Reply ---
-        // Flawlessly close the Telegram webhook loop by immediately 
-        // responding with a typing indicator, giving processQueue time to work!
-        return ContentService.createTextOutput(JSON.stringify({
-            method: "sendChatAction",
-            chat_id: chatId,
-            action: "typing"
-        })).setMimeType(ContentService.MimeType.JSON);
+        // Flawlessly close the Telegram webhook loop natively.
+        return ContentService.createTextOutput("OK");
 
     } catch (err) {
         Logger.log(`[MAIN] Fatal dispatcher error: ${err}`);
@@ -129,9 +108,7 @@ function doPost(e: GoogleAppsScript.Events.DoPost): GoogleAppsScript.Content.Tex
             const adminChat = getAdminChatId();
             sendReply(getMasterBotToken(), adminChat, [`🚨 SAM4 Fatal Error:\n${String(err)}`]);
         } catch (_) { /* ignore */ }
-        
-        return ContentService.createTextOutput(JSON.stringify({}))
-            .setMimeType(ContentService.MimeType.JSON);
+        return ContentService.createTextOutput("OK");
     }
 }
 
