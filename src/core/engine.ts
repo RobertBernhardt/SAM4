@@ -52,14 +52,32 @@ function runAlgo(algoId: string, uid: string, input: string): string[] {
                 }))
             }] : [];
 
-            // Inject the current time so the LLM doesn't hallucinate it
+            // Inject the current time AND any dynamic references so the LLM has zero hallucinations
             const currentTimeStr = new Date().toString();
-            const injectedSystemPrompt = `${config.systemPrompt}\n\n[SYSTEM CLOCK: The current real-world time is ${currentTimeStr}]`;
+            const refs = typeof getReferencesPayload === 'function' ? getReferencesPayload(algoId) : { textRefs: '', imageRefs: [] };
+            
+            const injectedSystemPrompt = `${config.systemPrompt}\n\n` + 
+                (refs.textRefs ? `[KNOWLEDGE BASE]\n${refs.textRefs}\n\n` : '') +
+                `[SYSTEM CLOCK: The current real-world time is ${currentTimeStr}]`;
+
+            
+            // Reconstruct the message payload. We safely inject heavy Image Base64 blobs 
+            // into the current turn without modifying state.data.history! This saves our Sheet quotas.
+            const finalMessages = [...state.data.history];
+            if (refs.imageRefs && refs.imageRefs.length > 0) {
+                const lastMsg = finalMessages[finalMessages.length - 1];
+                if (lastMsg && lastMsg.role === 'user') {
+                    finalMessages[finalMessages.length - 1] = {
+                        role: 'user',
+                        parts: [...lastMsg.parts, ...refs.imageRefs]
+                    };
+                }
+            }
 
             const options: CallGeminiOptions = {
                 model: config.model,
                 systemPrompt: injectedSystemPrompt,
-                messages: state.data.history,
+                messages: finalMessages,
                 temperature: config.temperature,
                 thinkingBudget: config.thinkingBudget,
             };
@@ -120,7 +138,25 @@ function runAlgo(algoId: string, uid: string, input: string): string[] {
             } else if (finalAns) {
                 state.data.history.push(modelMessage(finalAns));
                 updateState(uid, { data: state.data, status: 'completed' });
-                Logger.log(`[ENGINE] Completed: algo=${algoId}, uid=${uid}`);
+                
+                // --- METRICS CALCULATION ---
+                let totalTokens = 0;
+                let toolLogTracker = '';
+                if (state.data.logs && Array.isArray(state.data.logs)) {
+                    for (const log of state.data.logs) {
+                        if (log.tokenUsage && log.tokenUsage.totalTokenCount) {
+                            totalTokens += log.tokenUsage.totalTokenCount;
+                        }
+                        if (log.step) toolLogTracker += `[${log.step}] `;
+                    }
+                }
+
+                // Append the fully accounted conversation to the Logs Tab
+                if (typeof logConversation === 'function') {
+                    logConversation(uid, algoId, input, toolLogTracker, finalAns, totalTokens);
+                }
+
+                Logger.log(`[ENGINE] Completed: algo=${algoId}, uid=${uid}. Final Token Cost: ${totalTokens}`);
                 return [finalAns]; // Final conversational output
             } else {
                 updateState(uid, { status: 'error' });

@@ -1,100 +1,115 @@
-# SAM4 Living Documentation
+# SAM4: Universal Agent Runtime Operations Manual
 
 > **SAM4** — A metadata-driven universal agent engine running entirely on Google Apps Script (GAS).
 
 ---
 
-## Overview
+## 1. Core Principles of SAM4
 
-SAM4 is a modular AI agent system where **agents do not get their own files anymore**. They are just configurations in a spreadsheet. The codebase serves merely as the universal runner. The "SAM" Google Sheet is the brain of the operation.
-
-### Core Principles
-
-| Principle | Description |
-|---|---|
-| **Flat Namespace, Local Hierarchy** | GAS flattens all files. We use `src/core/` and `src/tools/` for organization. |
-| **Death of Hardcoded Agents** | There are no more `analgo.ts` or `gemalgo.ts`. Every execution runs through the universal `runAlgo()` engine. |
-| **Spreadsheet is Truth** | All agent logic (models, prompts, tools, settings) is driven by the SAM sheet registry. |
-| **No Waiting** | Never use `Utilities.sleep()`. Save state → kill execution → resume later. |
-| **models/ Prefix** | All Gemini model calls must strictly use the `models/` prefix. |
+- **Spreadsheet is Truth:** All agent logic (models, prompts, tools, settings) is driven entirely by the SAM Google Sheet registry. The codebase serves merely as the universal runner.
+- **Death of Hardcoded Agents:** There are no more `analgo.ts` or `gemalgo.ts`. Every execution runs through the universal recursive `runAlgo()` engine.
+- **Isolation is Quality:** Only give agents the tools they actually need to succeed.
+- **English Internals:** Prompt in English, output in German.
+- **Zero Hallucinations:** If it isn't explicitly defined in the sheet, it doesn't exist.
+- **Temperature 0 for Logic:** Always use temperature `0.0` for critics and data analysts to kill agreeable slop.
+- **No Waiting:** Never use `Utilities.sleep()`. Save state → kill execution → resume later. The engine must remain stateless.
 
 ---
 
-## The Core Engine (`runAlgo`)
+## 2. Sheet Reference: Tab by Tab
 
-The `engine.ts` file acts as the universal processor:
-1. Receives an `algoId`, `uid`, and user input.
-2. Uses `RegistryLoader` to fetch the algo configuration and associated tools from the SAM sheet.
-3. Iteratively calls the Gemini model.
-4. Executes SCRIPT tools locally or recursively calls `runAlgo()` for AGENT tools.
-5. Logs token usage and every step via `state_manager.ts`.
+This section defines every column in your SAM master sheet. Treat this as the law; the script breaks if indices or headers change.
+
+### Tab: `AgentManifest`
+*The "Brain" of the system.*
+- **`agent_id`** (Col A): Unique string used as the starting point. *Ex: `masteralgo`.*
+- **`system_prompt`** (Col B): The persona. You may paste raw text, OR paste a **Private Google Doc URL** (`https://docs.google...`). If it sees a Doc URL, `registry_loader.ts` will dynamically rip the text out of the document using `DocumentApp.openById()`.
+- **`model_id`** (Col C): The Gemini model. *Ex: `models/gemini-2.0-flash`.*
+- **`temperature`** (Col D): Number `0.0` to `1.0`. 
+- **`thinking_level`** (Col E): `MINIMAL`, `MEDIUM`, or `HIGH`. Maps to internal token budgets.
+- **`requires_critique`** (Col F): `TRUE` or `FALSE`. Routes outputs through the critic loop.
+- **`critic_id`** (Col G): The `agent_id` of the specialized critic to use.
+
+### Tab: `ToolRegistry`
+*The "Limbs" of the system.*
+- **`Tool_id`** (Col A): Unique string. This is what Gemini sees as the function name.
+- **`Type`** (Col B): `AGENT` (Calls another row in Manifest) or `SCRIPT` (Calls a GAS function in `tool_runner.ts`).
+- **`description`** (Col C): Natural language explanation for the LLM. *Crucial for tool picking.*
+- **`json_schema`** (Col D): The exact parameters Gemini must provide. Must be standard minified JSON.
+- **`function_name`** (Col E): Optional notes.
+
+### Tab: `Connections`
+*The "Nervous System". Defines which agent is allowed to use which tool/agent.*
+- **`parent_id`** (Col A): The `agent_id` from AgentManifest.
+- **`child_id`** (Col B): The `Tool_id` from ToolRegistry.
+
+### Tab: `References` (The RAG Machine)
+*Static Context Library dynamically injected into the system prompt.*
+- **`agent_id`** (Col A): Which agent gets this context.
+- **`reference_id`** (Col B): A Google Doc URL, Google Sheet URL, Google Drive Image Share Link, or public URL.
+- **`type`** (Col C): Choose between `DOC`, `SHEET`, `URL`, or `IMAGE`.
+  - *Note on IMAGES:* Images are ripped securely via `DriveApp.getFileById()` and injected dynamically into the Gemini payload as a `Base64 inlineData` buffer. They are intentionally NEVER saved to the persistent `AgentState` cell to prevent breaching the 50,000 character Google Sheet limit.
+- **`description`** (Col D): Summary of what the reference contains.
+
+### Tab: `Logs`
+*The Audit Trail. Automatically updated by `state_manager.ts` at the end of every workflow.*
+- Columns: `timestamp`, `uid`, `caller_id`, `agent_id`, `input`, `thinking` (tool execution traces), `output`, `tokens`.
+- Token values are dynamically aggregated from all nested tool-calls and Gemini Metadata API usages.
+
+### Tab: `Issues`
+*The Support Ticket Database.*
+- Automatically managed by the `issue_logger.ts` script tool when triggered by `bugalgo`, `failalgo`, or `taskalgo`.
 
 ---
 
-## The SAM Registry
-
-**SAM** is the central registry sheet.
-
-### AgentManifest Tab
-Contains the configuration for algorithms.
-Columns: `agent_id` (e.g. `masteralgo`), `model`, `system_prompt`, `temperature`, `max_tool_calls`, `thinking_budget`.
-
-### Connections Tab
-Maps each `algoId` to the `tool_name` it possesses.
-
-### ToolRegistry Tab
-Contains the raw JSON schemas for tools.
-Columns: `tool_name`, `type` (`SCRIPT` or `AGENT`), `schema_json`.
-
----
-
-## Tool Execution Mapping
-
-When Gemini determines a tool needs to be called, `tool_runner.ts` intercepts it.
-- **SCRIPT** tools match string names exactly to local TypeScript functions (like `executeCalculator`).
-- **AGENT** tools trigger a recursive `runAlgo()` call, effectively passing execution to a sub-algo defined strictly in the SAM sheet.
-
----
-
-## Multi-Bot Dispatch Architecture
+## 3. Multi-Bot Dispatch Architecture
 
 SAM4 operates via 5 core bots connected through Telegram webhooks. `main.ts` intercepts all requests and operates as a pure dispatcher:
 
-| Bot Token in Config | Target Algo | Use Case |
-|---|---|---|
-| `MASTER_BOT_TOKEN` | `masteralgo` | Starts the central / main workflow. |
-| `GEM_BOT_TOKEN` | `gemalgo` | Used specifically for retrieving gems directly. |
-| `BUG_BOT_TOKEN` | `bugalgo` | For reporting explicit bugs. |
-| `FAIL_BOT_TOKEN` | `failalgo` | For reporting workflow failures. |
-| `TASK_BOT_TOKEN` | `taskalgo` | Dispatches task-oriented requests. |
-
-The webhook dispatcher pulls the token or "bot" identifier directly from the URL query params (`?bot=master` or `?token=...`) to route the message.
-
-### Multi-Message Support
-
-The transport layer (`transport_telegram.ts`) possesses a universal `sendReply` function. If `runAlgo` returns an array of multiple strings (e.g., `gemalgo` retrieving five gems), `sendReply` seamlessly fires them as five independent Telegram messages back sequentially.
+1. **MasterBot:** CEO access (routes to `masteralgo`).
+2. **GemBot:** Direct line to the specialist (routes to `gemalgo`).
+3. **BugBot:** For logging script errors.
+4. **FailBot:** For logging logic failures/hypotheses.
+5. **TaskBot:** For logging missing functionality.
 
 ### Cloudflare Webhook Proxy (The 302 Shield)
+Google Apps Script unconditionally responds to POST requests with an HTTP 302 Redirect. Telegram Webhooks categorically reject 302 redirects, leading to an infinite retry death-loop. To solve this without queues, SAM4 is permanently deployed behind a free **Cloudflare Worker proxy**. 
 
-Google Apps Script unconditionally responds to POST requests with an HTTP 302 Redirect. Telegram Webhooks categorically reject 302 redirects, leading to an infinite retry death-loop.
-
-To solve this natively without queues, **SAM4 is permanently deployed behind a free Cloudflare Worker proxy**. 
-1. Telegram sends the webhook payload to the Cloudflare Worker (e.g., `https://sam-telegram-proxy...workers.dev/?bot=master`).
-2. Cloudflare receives the POST, calls `ctx.waitUntil(fetch(GAS_URL))` to securely pass the payload to Google Apps Script in the background.
-3. Cloudflare instantly returns a `200 OK` to Telegram within 50ms.
-4. Google Apps Script runs perfectly synchronously in the background (allowed up to its 6-minute internal hard cap), completely disconnected from Telegram's stringent 60-second webhook timeout.
+1. Cloudflare receives the Telegram POST payload.
+2. Cloudflare blindly passes the `?bot=` query parameter to GAS.
+3. Cloudflare calls `ctx.waitUntil(fetch(GAS_URL))` to run GAS synchronously in the background (up to 6 minutes).
+4. Cloudflare instantly returns a `200 OK` to Telegram within 50ms, permanently solving all webhook timeouts.
 
 ---
 
-## Deployment & Setup
+## 4. How to Extend SAM (Operator's Manual)
 
-1. Configure script properties for all 5 `*_BOT_TOKEN` keys along with `GEMINI_API_KEY`, `SAM_SHEET_ID`, and `STATE_SPREADSHEET_ID`.
-2. Define `masteralgo`, `gemalgo`, `bugalgo`, `failalgo`, and `taskalgo` inside the SAM sheet (AgentManifest tab).
-3. Push codebase via `clasp push`.
-4. Deploy the GAS Web App to generate your `/exec` URL.
-5. Create a Cloudflare Worker that forwards POST requests via `ctx.waitUntil(fetch(GAS_URL))` to your new `/exec` URL.
-6. Configure each Telegram bot webhook pointing to the **Cloudflare Worker URL**, featuring their specific target identity (`?bot=master`, `?bot=gem`, etc.).
+### To add a new thinking specialist / bot:
+1. Talk to Botfather, get a token, and add it to GAS Script Properties.
+2. Update the dispatcher in `main.ts` to route the new URL parameter (`else if (urlBot === 'newbot')`).
+3. Set the Telegram webhook to your unified Cloudflare URL: `...?url=https://sam-proxy.workers.dev/?bot=newbot`.
+4. Add a row to `AgentManifest` defining its logic.
+
+### To add a new physical capability (SCRIPT Tool):
+1. Write the logic in `src/tools/my_tool.ts`.
+2. Map it inside the switch case in `src/tools/tool_runner.ts`.
+3. Register the exact `Tool_id` and JSON Schema in `ToolRegistry`.
+4. Give an agent access to it by adding a row in `Connections`.
+
+### To maintain quality (The Critique Loop):
+1. Create a specialized critic in the Manifest (e.g., `german_critic`).
+2. Set `requires_critique` to **TRUE** for your worker agent.
+3. Add `german_critic` to the `critic_id` column.
+4. The engine will automatically route drafts through the critic for roasting before you ever see them.
 
 ---
 
+## 5. Operations & Gotchas
+
+- **Aggressive Caching**: `registry_loader.ts` utilizes Google's `CacheService`. During active development, `CACHE_TTL` is set to 60 seconds. In production, it can be raised to 6 hours. If your bot ignores spreadsheet updates, the cache is active.
+- **GAS Execution Limits**: Google Apps Script has a **6-minute execution wall-clock limit**. Deep recursion will kill the script. Keep tool chains shallow (Master -> Specialist -> Tool).
+- **JSON Object requirement**: When creating SCRIPT tools, always return a serialized string or an object. Gemini needs a deterministic JSON structure to "hear" the result back from the tool effectively.
+- **Review Permissions**: Whenever you add a new feature that touches Google Drive, Docs, Sheets, or External APIs, Google will silently pause your webhooks until you manually click **Run -> Review Permissions** on a function inside the web editor.
+
+---
 *End of Document*

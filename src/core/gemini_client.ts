@@ -35,6 +35,7 @@ interface GeminiMessage {
 
 interface GeminiPart {
     text?: string;
+    inlineData?: { mimeType: string; data: string }; // Native multi-modal image support
     functionCall?: { name: string; args: Record<string, any> };
     functionResponse?: { name: string; response: Record<string, any> };
 }

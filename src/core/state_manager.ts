@@ -148,3 +148,32 @@ function updateState(
 function generateUid(): string {
     return Utilities.getUuid();
 }
+
+/**
+ * Persists the final conversation metrics and token cost to the Audit Logs tab.
+ */
+function logConversation(uid: string, algoId: string, input: string, thinking: string, output: string, tokens: number) {
+    try {
+        const ss = SpreadsheetApp.openById(getStateSpreadsheetId());
+        let sheet = ss.getSheetByName('Logs');
+        if (!sheet) {
+            sheet = ss.insertSheet('Logs');
+            sheet.appendRow(['timestamp', 'uid', 'caller_id', 'agent_id', 'input', 'thinking', 'output', 'tokens']);
+            sheet.setFrozenRows(1);
+        }
+        
+        sheet.appendRow([
+            new Date().toISOString(),
+            uid,
+            'TELEGRAM',
+            algoId,
+            input || '',
+            thinking || '',
+            output || '',
+            tokens || 0
+        ]);
+        Logger.log(`[STATE_MANAGER] Audit Log successfully persisted for uid=${uid}`);
+    } catch (e) {
+        Logger.log(`[STATE_MANAGER] Failed to append to Logs tab: ${e}`);
+    }
+}

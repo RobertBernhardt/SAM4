@@ -16,6 +16,8 @@ function executeScriptTool(toolName, args) {
             return executeSearchInteractiveGems(args);
         case 'mysteriousCodeGenerator':
             return executeMysteriousCodeGenerator(args);
+        case 'log_issue':
+            return executeIssueLogger(args);
         default:
             return { error: `Script tool execution failed: unmapped tool '${toolName}'` };
     }

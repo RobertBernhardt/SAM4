@@ -15,8 +15,8 @@ function executeScriptTool(toolName: string, args: Record<string, any>): any {
             return executeSearchContentGems(args as any);
         case 'searchInteractiveGems':
             return executeSearchInteractiveGems(args as any);
-        case 'mysteriousCodeGenerator':
-            return executeMysteriousCodeGenerator(args as any);
+        case 'log_issue':
+            return executeIssueLogger(args as any);
         default:
             return { error: `Script tool execution failed: unmapped tool '${toolName}'` };
     }
