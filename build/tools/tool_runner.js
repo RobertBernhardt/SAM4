@@ -14,8 +14,6 @@ function executeScriptTool(toolName, args) {
             return executeSearchContentGems(args);
         case 'searchInteractiveGems':
             return executeSearchInteractiveGems(args);
-        case 'mysteriousCodeGenerator':
-            return executeMysteriousCodeGenerator(args);
         case 'log_issue':
             return executeIssueLogger(args);
         default:

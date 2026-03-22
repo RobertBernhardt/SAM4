@@ -53,8 +53,13 @@ This section defines every column in your SAM master sheet. Treat this as the la
 
 ### Tab: `Logs`
 *The Audit Trail. Automatically updated by `state_manager.ts` at the end of every workflow.*
-- Columns: `timestamp`, `uid`, `caller_id`, `agent_id`, `input`, `thinking` (tool execution traces), `output`, `tokens`.
+- Columns: `timestamp`, `uid`, `caller_id`, `agent_id`, `input`, `thinking` (tool execution traces), `output`, `tokens`, `model used`.
 - Token values are dynamically aggregated from all nested tool-calls and Gemini Metadata API usages.
+
+### Tab: `Budget`
+*Safety mechanism to prevent over-usage. Automatically updated.*
+- Columns: `date`, `total_tokens`, `AI model`.
+- The engine checks tokens consumed by specific models on today's date. If a model exceeds 1,000,000 tokens, the system safely pauses entirely for that model until the next day.
 
 ### Tab: `Issues`
 *The Support Ticket Database.*

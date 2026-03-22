@@ -31,6 +31,11 @@ function runAlgo(algoId, uid, input) {
         state.data.history.push(userMessage(input));
         updateState(uid, { data: state.data, status: 'running' });
         Logger.log(`[ENGINE] runAlgo started: algo=${algoId}, uid=${uid}, model=${config.model}`);
+        if (typeof isModelOverBudget === 'function' && isModelOverBudget(config.model)) {
+            const errMsg = `❌ Error: Budget limit of 1,000,000 tokens reached for model ${config.model} today. System is paused.`;
+            updateState(uid, { status: 'error' });
+            return [errMsg];
+        }
         let loopCount = 0;
         while (loopCount < config.maxToolCalls) {
             loopCount++;
@@ -136,7 +141,7 @@ function runAlgo(algoId, uid, input) {
                 }
                 // Append the fully accounted conversation to the Logs Tab
                 if (typeof logConversation === 'function') {
-                    logConversation(uid, algoId, input, toolLogTracker, finalAns, totalTokens);
+                    logConversation(uid, algoId, input, toolLogTracker, finalAns, totalTokens, config.model);
                 }
                 Logger.log(`[ENGINE] Completed: algo=${algoId}, uid=${uid}. Final Token Cost: ${totalTokens}`);
                 return [finalAns]; // Final conversational output

@@ -150,16 +150,110 @@ function generateUid(): string {
 }
 
 /**
+ * Parses a date value from Google Sheets into a YYYY-MM-DD string.
+ */
+function parseSheetDate_(rawDate: any): string {
+    if (!rawDate) return '';
+    if (rawDate instanceof Date) {
+        const offsetMs = rawDate.getTimezoneOffset() * 60000;
+        const localDate = new Date(rawDate.getTime() - offsetMs);
+        return localDate.toISOString().split('T')[0];
+    }
+    return String(rawDate).split('T')[0];
+}
+
+/**
+ * Gets or creates the Budget sheet.
+ */
+function getBudgetSheet_(): GoogleAppsScript.Spreadsheet.Sheet {
+    const ss = SpreadsheetApp.openById(getStateSpreadsheetId());
+    let sheet = ss.getSheetByName('Budget');
+    if (!sheet) {
+        sheet = ss.insertSheet('Budget');
+        sheet.getRange('A1:C1').setValues([['date', 'total_tokens', 'AI model']]);
+        sheet.setFrozenRows(1);
+    }
+    return sheet;
+}
+
+/**
+ * Checks if a specific model has exceeded its 1 million token limit for today.
+ */
+function isModelOverBudget(model: string): boolean {
+    if (!model) return false;
+    try {
+        const sheet = getBudgetSheet_();
+        const data = sheet.getDataRange().getValues();
+        const today = new Date().toISOString().split('T')[0];
+
+        for (let i = 1; i < data.length; i++) {
+            const rowDateStr = parseSheetDate_(data[i][0]);
+            const rowTokens = Number(data[i][1]) || 0;
+            const rowModel = String(data[i][2]);
+
+            if (rowDateStr === today && rowModel === model) {
+                if (rowTokens > 1000000) {
+                    return true;
+                }
+            }
+        }
+    } catch (e) {
+        Logger.log(`[STATE_MANAGER] Failed to check budget: ${e}`);
+    }
+    return false;
+}
+
+/**
+ * Updates the Budget tab for the given model and tokens today.
+ */
+function updateBudget(model: string, tokens: number) {
+    if (!tokens || tokens <= 0 || !model) return;
+    
+    try {
+        const sheet = getBudgetSheet_();
+        const data = sheet.getDataRange().getValues();
+        const today = new Date().toISOString().split('T')[0];
+
+        let found = false;
+        // Start from 1 to skip header
+        for (let i = 1; i < data.length; i++) {
+            const rowDateStr = parseSheetDate_(data[i][0]);
+            const rowModel = String(data[i][2]);
+
+            if (rowDateStr === today && rowModel === model) {
+                const currentTokens = Number(data[i][1]) || 0;
+                sheet.getRange(i + 1, 2).setValue(currentTokens + tokens);
+                found = true;
+                break;
+            }
+        }
+
+        if (!found) {
+            sheet.appendRow([today, tokens, model]);
+        }
+        Logger.log(`[STATE_MANAGER] Budget updated for model=${model}, +${tokens} tokens.`);
+    } catch (e) {
+        Logger.log(`[STATE_MANAGER] Failed to update Budget tab: ${e}`);
+    }
+}
+
+/**
  * Persists the final conversation metrics and token cost to the Audit Logs tab.
  */
-function logConversation(uid: string, algoId: string, input: string, thinking: string, output: string, tokens: number) {
+function logConversation(uid: string, algoId: string, input: string, thinking: string, output: string, tokens: number, modelUsed: string) {
     try {
         const ss = SpreadsheetApp.openById(getStateSpreadsheetId());
         let sheet = ss.getSheetByName('Logs');
         if (!sheet) {
             sheet = ss.insertSheet('Logs');
-            sheet.appendRow(['timestamp', 'uid', 'caller_id', 'agent_id', 'input', 'thinking', 'output', 'tokens']);
+            sheet.appendRow(['timestamp', 'uid', 'caller_id', 'agent_id', 'input', 'thinking', 'output', 'tokens', 'model used']);
             sheet.setFrozenRows(1);
+        } else {
+            // Ensure header exists for 'model used'
+            const headers = sheet.getRange('A1:I1').getValues()[0];
+            if (headers[8] !== 'model used') {
+                sheet.getRange('I1').setValue('model used');
+            }
         }
         
         sheet.appendRow([
@@ -170,10 +264,16 @@ function logConversation(uid: string, algoId: string, input: string, thinking: s
             input || '',
             thinking || '',
             output || '',
-            tokens || 0
+            tokens || 0,
+            modelUsed || ''
         ]);
         Logger.log(`[STATE_MANAGER] Audit Log successfully persisted for uid=${uid}`);
+        
+        // Update Budget
+        if (modelUsed && tokens > 0) {
+            updateBudget(modelUsed, tokens);
+        }
     } catch (e) {
-        Logger.log(`[STATE_MANAGER] Failed to append to Logs tab: ${e}`);
+        Logger.log(`[STATE_MANAGER] Failed to append to Logs/Budget tab: ${e}`);
     }
 }
