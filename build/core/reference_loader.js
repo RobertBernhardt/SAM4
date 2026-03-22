@@ -57,10 +57,12 @@ function getReferencesPayload(algoId) {
                         const sheets = refSs.getSheets();
                         sheets.forEach(refSheet => {
                             const sheetName = refSheet.getName();
-                            payload.textRefs += `\n[TAB: ${sheetName}]\n`;
                             const refData = refSheet.getDataRange().getDisplayValues();
-                            if (refData.length > 0) {
-                                const tableText = refData.map(r => r.join(' | ')).join('\n');
+                            // Filter out completely empty rows to save tokens
+                            const validRows = refData.filter(row => row.some(cell => String(cell).trim() !== ''));
+                            if (validRows.length > 0) {
+                                payload.textRefs += `\n[TAB: ${sheetName}]\n`;
+                                const tableText = validRows.map(r => r.join(' | ')).join('\n');
                                 payload.textRefs += tableText + `\n`;
                             }
                         });
