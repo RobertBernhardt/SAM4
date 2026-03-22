@@ -16,11 +16,15 @@ function getReferencesPayload(algoId: string): ReferencePayload {
     // to keep the architecture perfectly stateless.
     const cache = CacheService.getScriptCache();
     const cacheKey = `SAM_REFS_TXT_V3_${algoId}`;
+    let isTextCached = false;
     
     // We only cache the text payload. Images are processed live every time.
     if (cache) {
         const cachedText = cache.get(cacheKey);
-        if (cachedText) payload.textRefs = cachedText;
+        if (cachedText) {
+            payload.textRefs = cachedText;
+            isTextCached = true;
+        }
     }
 
     const ss = SpreadsheetApp.openById(getSamSheetId());
@@ -57,16 +61,23 @@ function getReferencesPayload(algoId: string): ReferencePayload {
                 }
 
                 // If it isn't cached yet, build the TEXT payload.
-                if (!payload.textRefs) {
+                if (!isTextCached) {
                     payload.textRefs += `\n\n--- REFERENCE ARCHIVE: ${desc} ---\n`;
                     if (type === 'DOC') {
                         payload.textRefs += DocumentApp.openById(cleanId).getBody().getText();
                     } else if (type === 'SHEET') {
                         const refSs = SpreadsheetApp.openById(cleanId);
-                        const refSheet = refSs.getSheets()[0];
-                        const refData = refSheet.getDataRange().getDisplayValues();
-                        const tableText = refData.map(r => r.join(' | ')).join('\n');
-                        payload.textRefs += tableText;
+                        const sheets = refSs.getSheets();
+                        
+                        sheets.forEach(refSheet => {
+                            const sheetName = refSheet.getName();
+                            payload.textRefs += `\n[TAB: ${sheetName}]\n`;
+                            const refData = refSheet.getDataRange().getDisplayValues();
+                            if (refData.length > 0) {
+                                const tableText = refData.map(r => r.join(' | ')).join('\n');
+                                payload.textRefs += tableText + `\n`;
+                            }
+                        });
                     } else if (type === 'URL') {
                         const response = UrlFetchApp.fetch(refId, { muteHttpExceptions: true });
                         const rawHtml = response.getContentText();
@@ -81,14 +92,14 @@ function getReferencesPayload(algoId: string): ReferencePayload {
                     }
                 }
             } catch (e) {
-                if (!payload.textRefs) payload.textRefs += `[FAILED TO LOAD REFERENCE: ${e}]`;
+                if (!isTextCached) payload.textRefs += `[FAILED TO LOAD REFERENCE: ${e}]`;
                 Logger.log(`[REFERENCES] Failed to load reference ${refId}: ${e}`);
             }
         }
     }
     
     // Cache ONLY the text payload so we don't blow up the script limits
-    if (cache && payload.textRefs.trim().length > 0) {
+    if (cache && !isTextCached && payload.textRefs.trim().length > 0) {
         cache.put(cacheKey, payload.textRefs, 60);
     }
     

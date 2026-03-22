@@ -27,8 +27,6 @@ This section defines every column in your SAM master sheet. Treat this as the la
 - **`model_id`** (Col C): The Gemini model. *Ex: `models/gemini-2.0-flash`.*
 - **`temperature`** (Col D): Number `0.0` to `1.0`. 
 - **`thinking_level`** (Col E): `MINIMAL`, `MEDIUM`, or `HIGH`. Maps to internal token budgets.
-- **`requires_critique`** (Col F): `TRUE` or `FALSE`. Routes outputs through the critic loop.
-- **`critic_id`** (Col G): The `agent_id` of the specialized critic to use.
 
 ### Tab: `ToolRegistry`
 *The "Limbs" of the system.*
@@ -102,10 +100,10 @@ Google Apps Script unconditionally responds to POST requests with an HTTP 302 Re
 4. Give an agent access to it by adding a row in `Connections`.
 
 ### To maintain quality (The Critique Loop):
-1. Create a specialized critic in the Manifest (e.g., `german_critic`).
-2. Set `requires_critique` to **TRUE** for your worker agent.
-3. Add `german_critic` to the `critic_id` column.
-4. The engine will automatically route drafts through the critic for roasting before you ever see them.
+1. Create a specialized critic in the Manifest (e.g., `german_critic`) as a standalone persona.
+2. Register the critic in `ToolRegistry` with Type = `AGENT`.
+3. Give your worker agent access by adding a row in `Connections` (Parent: worker, Child: critic).
+4. Tell your worker agent in its system prompt: *"Before returning your final output, you must submit your draft to the german_critic tool and revise it based on the feedback."*
 
 ---
 
