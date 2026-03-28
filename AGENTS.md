@@ -24,12 +24,18 @@ This section defines every column in your SAM master sheet. Treat this as the la
 *The "Brain" of the system.*
 - **`agent_id`** (Col A): Unique string used as the starting point. *Ex: `masteralgo`.*
 - **`system_prompt`** (Col B): The persona. You may paste raw text, OR paste a **Private Google Doc URL** (`https://docs.google...`). If it sees a Doc URL, `registry_loader.ts` will dynamically rip the text out of the document using `DocumentApp.openById()`.
-- **`model_id`** (Col C): The Gemini model. *Ex: `models/gemini-2.0-flash`.*
+- **`model_id`** (Col C): The AI model category. *Ex: `system`, `bots`, `thinking`.* Models are mapped in the new `Models` tab.
 - **`temperature`** (Col D): Number `0.0` to `1.0`. 
 - **`thinking_level`** (Col E): `MINIMAL`, `MEDIUM`, or `HIGH`. Maps to internal token budgets.
 - **`lifetime_usage`** (Col H): Auto-populated nightly by `updateTelemetry()`. Direct invocation count from Logs.
-- **`experience_doc_url`** (Col I): Auto-created Google Doc for agent self-learning. The engine injects its content as `[AGENT EXPERIENCE]` into the system prompt.
+- **`experience_doc_url`** (Col I): Auto-created Google Doc for agent self-learning. These are generated automatically and placed in the Google Drive folder specified by the `EXPERIENCE_FOLDER_ID` Script Property. The engine injects its content as `[AGENT EXPERIENCE]` into the system prompt.
 - **`total_invocations`** (Col J): Auto-populated nightly. Sum of direct invocations + times called as a sub-agent tool.
+
+### Tab: `Models`
+*The Model Mapping System.*
+- **`category`** (Col A): Unique category name. *Ex: `system`, `bots`, `simple`, `thinking`, `wild`, `images`.*
+- **`model`** (Col B): The exact Google Gemini model name. *Ex: `models/gemini-2.0-flash`.*
+Instead of hardcoding APIs into the AgentManifest, the system abstracts them to allow one-click model swapping across all agents. Note: Internal background agents (`quest_update_algo`, `subquest_approval_algo`, `experience_algo`, `new_quest_algo`) are hardcoded in the codebase for stability but dynamically fetch their model from the `system` category defined here.
 
 ### Tab: `ToolRegistry`
 *The "Limbs" of the system.*

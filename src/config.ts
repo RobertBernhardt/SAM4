@@ -127,3 +127,8 @@ function getSamSheetId(): string {
 function getQuestDocsFolderId(): string {
     return getScriptProp_('QUEST_DOCS_FOLDER_ID');
 }
+
+/** Google Drive folder ID for auto-created agent experience docs. */
+function getExperienceDocsFolderId(): string {
+    return getScriptProp_('EXPERIENCE_FOLDER_ID');
+}

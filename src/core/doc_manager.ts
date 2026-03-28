@@ -12,13 +12,13 @@ function extractDocId_(url: string): string | null {
     return match ? match[1] : null;
 }
 
-function createDocInFolder_(title: string): string {
+function createDocInFolder_(title: string, customFolderId?: string): string {
     const doc = DocumentApp.create(title);
     const docId = doc.getId();
     const file = DriveApp.getFileById(docId);
 
     try {
-        const folderId = getQuestDocsFolderId();
+        const folderId = customFolderId || getQuestDocsFolderId();
         const folder = DriveApp.getFolderById(folderId);
         folder.addFile(file);
         DriveApp.getRootFolder().removeFile(file);
@@ -73,16 +73,25 @@ function ensureQuestStateDoc_(questId: string, description: string): string {
 // ─── Agent Experience Docs ──────────────────────────────────
 
 function createExperienceDoc_(agentId: string): string {
-    const url = createDocInFolder_(`Agent Experience: ${agentId}`);
+    const title = `${agentId} - valueable lessons / experience doc`;
+    const url = createDocInFolder_(title, getExperienceDocsFolderId());
     const docId = extractDocId_(url);
 
     if (docId) {
         const doc = DocumentApp.openById(docId);
         const body = doc.getBody();
-        body.appendParagraph(`=== Experience Log: ${agentId} ===`).setHeading(DocumentApp.ParagraphHeading.HEADING1);
-        body.appendParagraph('Advice and lessons learned from previous executions.');
-        body.appendParagraph('---');
+        body.appendParagraph('#1 ');
         doc.saveAndClose();
+    }
+
+    // Notify the Creator that a new experience doc has been auto-generated
+    try {
+        if (typeof sendReply === 'function') {
+            const msg = `📄 *Experience Doc Generated*\n\nA new experience document was automatically created for agent: *${agentId}*\n\n[Open Document](${url})`;
+            sendReply(getMasterBotToken(), getAdminChatId(), msg);
+        }
+    } catch (e) {
+        Logger.log(`[DOC_MANAGER] Failed to notify Creator about new experience doc: ${e}`);
     }
 
     return url;

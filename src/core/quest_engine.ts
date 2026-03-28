@@ -534,7 +534,7 @@ function parseNLQuestUpdate(userText: string, updateId: string): string {
     const uid = `nl_quest_${updateId}_${new Date().getTime()}`;
 
     try {
-        const results = runAlgo('quest_update_parser', uid, contextMessage);
+        const results = runAlgo('quest_update_algo', uid, contextMessage);
         const rawText = results.join('\n');
         const jsonMatch = rawText.match(/\{[\s\S]*?\}/);
         const data = JSON.parse(jsonMatch ? jsonMatch[0] : rawText);
@@ -567,7 +567,7 @@ function parseNLSubquestApproval(userText: string, updateId: string): string {
     const uid = `nl_subquest_${updateId}_${new Date().getTime()}`;
 
     try {
-        const results = runAlgo('subquest_approval_parser', uid, contextMessage);
+        const results = runAlgo('subquest_approval_algo', uid, contextMessage);
         const rawText = results.join('\n');
         const jsonMatch = rawText.match(/\{[\s\S]*?\}/);
         const data = JSON.parse(jsonMatch ? jsonMatch[0] : rawText);
@@ -612,7 +612,7 @@ function parseNLNewQuest(userText: string, updateId: string): string {
     const uid = `nl_newquest_${updateId}_${new Date().getTime()}`;
 
     try {
-        const results = runAlgo('new_quest_parser', uid, contextMessage);
+        const results = runAlgo('new_quest_algo', uid, contextMessage);
         const rawText = results.join('\n');
         const jsonMatch = rawText.match(/\{[\s\S]*?\}/);
         const data = JSON.parse(jsonMatch ? jsonMatch[0] : rawText);
@@ -826,7 +826,8 @@ function triggerExperienceReview(): void {
     for (let i = 1; i < data.length; i++) {
         const agentId = String(data[i][0]).trim();
         const docUrl = String(data[i][8] || '').trim(); // Col I
-        const usage = Number(data[i][7]) || 1; // Col H = lifetime_usage as weight
+        const rawUsage = Number(data[i][7]) || 1; // Col H = lifetime_usage
+        const usage = Math.max(1, Math.floor(Math.log2(rawUsage)) + 1); // logarithmic weight
 
         if (agentId && docUrl) {
             agents.push({ agentId, usage });
@@ -857,7 +858,7 @@ function triggerExperienceReview(): void {
     }
 
     // Reset winner
-    scores[winner] = 0;
+    scores[winner] = 1;
     props.setProperty('EXP_REVIEW_SCORES', JSON.stringify(scores));
 
     // Load the doc and run the reviewer agent
@@ -885,7 +886,7 @@ function triggerExperienceReview(): void {
     ].join('\n');
 
     try {
-        const results = runAlgo('experience_reviewer', uid, prompt);
+        const results = runAlgo('experience_algo', uid, prompt);
         const cleaned = results.join('\n');
         if (cleaned.length > 50) {
             overwriteDocContent(cfg.experienceDocUrl, cleaned);
