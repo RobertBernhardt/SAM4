@@ -110,19 +110,31 @@ function selectNextQuest_(): QuestRow | null {
 
     const latestFeedback: Record<string, string> = {};
     const latestRunNum: Record<string, number> = {};
+    const latestLessons: Record<string, string> = {};
+    const latestActions: Record<string, string> = {};
+
     for (let i = 1; i < logData.length; i++) {
         const qid = String(logData[i][1]).trim();
         const runNum = Number(logData[i][2]) || 0;
         if (!latestRunNum[qid] || runNum > latestRunNum[qid]) {
             latestRunNum[qid] = runNum;
+            latestActions[qid] = String(logData[i][3] || '').trim();
+            latestLessons[qid] = String(logData[i][4] || '').trim();
             latestFeedback[qid] = String(logData[i][5] || '').trim();
         }
     }
 
     const awaitingFeedback = new Set<string>();
     for (const q of quests) {
-        if (latestRunNum[q.questId] && !latestFeedback[q.questId]) {
-            awaitingFeedback.add(q.questId);
+        if (latestRunNum[q.questId]) {
+            const hasFeedback = latestFeedback[q.questId] !== '';
+            const isCrash = latestActions[q.questId].startsWith('[CRASHED]') || latestLessons[q.questId].startsWith('[ERROR]');
+            const isTimeout = latestLessons[q.questId].startsWith('[TIMEOUT]');
+            const isExecuting = latestActions[q.questId].startsWith('[EXECUTING]') && latestLessons[q.questId] === ''; 
+            
+            if (!hasFeedback && !isCrash && !isTimeout && !isExecuting) {
+                awaitingFeedback.add(q.questId);
+            }
         }
     }
 
