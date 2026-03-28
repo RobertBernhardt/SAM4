@@ -130,7 +130,7 @@ function getAlgoConfig(algoId: string): AlgoConfig {
             let systemPromptRaw = String(row[1] || '').trim();
             
             // If the cell contains a Google Doc URL, dynamically read the entire document!
-            const docMatch = systemPromptRaw.match(/\/d\/([-\w]{25,})/);
+            const docMatch = systemPromptRaw.match(/\/d\/([-\w]{25,})/) || systemPromptRaw.match(/id=([-\w]{25,})/);
             if (docMatch && docMatch[1]) {
                 try {
                     systemPromptRaw = DocumentApp.openById(docMatch[1]).getBody().getText();

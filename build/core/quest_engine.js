@@ -435,6 +435,16 @@ function suggestSubquest(parentId, suggestedId, weight, description) {
     }
 }
 // ─── Natural Language (NL) Parsers ──────────────────────────
+function markLatestDeliveredAsReplied_() {
+    const sheet = getOutboxSheet_();
+    const data = sheet.getDataRange().getValues();
+    for (let i = data.length - 1; i > 0; i--) {
+        if (String(data[i][3]).trim() === 'DELIVERED') {
+            sheet.getRange(i + 1, 4).setValue('REPLIED');
+            break;
+        }
+    }
+}
 function getLatestDeliveredQuestId_() {
     const sheet = getOutboxSheet_();
     const data = sheet.getDataRange().getValues();
@@ -583,6 +593,7 @@ function createNewQuest_(questId, description, weight) {
 }
 // ─── Telegram Webhook Handlers ──────────────────────────────
 function handleQuestUpdate(questId, newProgress, feedback) {
+    markLatestDeliveredAsReplied_();
     const logSheet = getQuestLogsSheet_();
     const logData = logSheet.getDataRange().getValues();
     let latestLogRow = -1;
@@ -620,6 +631,7 @@ function handleQuestUpdate(questId, newProgress, feedback) {
     return `${statusMsg}\nQuest: ${questId}\nFeedback: "${feedback}"${queueNote}`;
 }
 function handleSubquestApproval(parentId, subId, weight, newDesc) {
+    markLatestDeliveredAsReplied_();
     const sheet = getQuestsSheet_();
     const data = sheet.getDataRange().getValues();
     for (let i = 1; i < data.length; i++) {

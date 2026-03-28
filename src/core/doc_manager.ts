@@ -8,7 +8,7 @@
 
 function extractDocId_(url: string): string | null {
     if (!url) return null;
-    const match = url.match(/\/d\/([-\w]{25,})/);
+    const match = url.match(/\/d\/([-\w]{25,})/) || url.match(/id=([-\w]{25,})/);
     return match ? match[1] : null;
 }
 
@@ -80,7 +80,9 @@ function createExperienceDoc_(agentId: string): string {
     if (docId) {
         const doc = DocumentApp.openById(docId);
         const body = doc.getBody();
-        body.appendParagraph('#1 ');
+        body.appendParagraph(title).setHeading(DocumentApp.ParagraphHeading.HEADING1);
+        body.appendParagraph('');
+        body.appendParagraph('#1').setHeading(DocumentApp.ParagraphHeading.HEADING2);
         doc.saveAndClose();
     }
 
