@@ -87,7 +87,12 @@ function callGemini(options) {
         genConfig.maxOutputTokens = options.maxOutputTokens;
     }
     if (options.thinkingBudget !== undefined && options.thinkingBudget > 0) {
-        genConfig.thinkingConfig = { thinkingBudget: options.thinkingBudget };
+        if (!options.tools || options.tools.length === 0) {
+            genConfig.thinkingConfig = { thinkingBudget: options.thinkingBudget };
+        }
+        else {
+            Logger.log(`[GEMINI_CLIENT] Stripping thinkingBudget because function calling (tools) is active. The Gemini API does not support both simultaneously and may hang.`);
+        }
     }
     if (Object.keys(genConfig).length > 0) {
         payload.generationConfig = genConfig;

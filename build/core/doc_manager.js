@@ -75,7 +75,8 @@ function createExperienceDoc_(agentId) {
     try {
         if (typeof sendReply === 'function') {
             const msg = `📄 *Experience Doc Generated*\n\nA new experience document was automatically created for agent: *${agentId}*\n\n[Open Document](${url})`;
-            sendReply(getMasterBotToken(), getAdminChatId(), msg);
+            // sendReply(getMasterBotToken(), getAdminChatId(), msg);
+            Logger.log(`[DOC_MANAGER] Auto-created experience doc, suppressing telegram notification to avoid MasterBot confusion.`);
         }
     }
     catch (e) {
