@@ -53,9 +53,76 @@ function doPost(e) {
         }
         const text = update.message.text;
         const userName = update.message.from?.first_name || 'User';
-        // --- 5. Routing ---
+        // --- 5a. Webhook Commands Interception ---
+        const updateMatch = text.match(/^\/update\s+(\S+)\s+(\d+)\s+([\s\S]+)/i);
+        const subquestMatch = text.match(/^\/approve_sub\s+(\S+)\s+(\S+)\s+(\d+)(?:\s+([\s\S]+))?/i);
+        if (updateMatch) {
+            const questId = updateMatch[1];
+            const newProgress = parseInt(updateMatch[2], 10);
+            const feedback = updateMatch[3].trim();
+            telemetryLog_(updateId, 'QUEST_UPDATE', `Quest ${questId} → ${newProgress}%`);
+            try {
+                const result = handleQuestUpdate(questId, newProgress, feedback);
+                const replyToken = e.parameter.bot === 'master' ? getMasterBotToken() : getQuestBotToken();
+                sendReply(replyToken, chatId, [result]);
+            }
+            catch (err) {
+                sendReply(getQuestBotToken(), chatId, [`❌ Failed to update quest: ${String(err)}`]);
+            }
+            return ContentService.createTextOutput("OK");
+        }
+        if (subquestMatch) {
+            const parentId = subquestMatch[1];
+            const subId = subquestMatch[2];
+            const weight = parseInt(subquestMatch[3], 10);
+            const newDesc = subquestMatch[4] ? subquestMatch[4].trim() : null;
+            telemetryLog_(updateId, 'SUBQUEST_APPROVAL', `Approving Subquest ${subId} for ${parentId}`);
+            try {
+                const result = handleSubquestApproval(parentId, subId, weight, newDesc);
+                sendReply(getSubquestBotToken(), chatId, [result]);
+            }
+            catch (err) {
+                sendReply(getSubquestBotToken(), chatId, [`❌ Failed to approve subquest: ${String(err)}`]);
+            }
+            return ContentService.createTextOutput("OK");
+        }
+        // --- 5b. Natural Language (NL) Parsers for Quest/Subquest Bots ---
         const urlToken = e.parameter.token;
         const urlBot = e.parameter.bot;
+        if ((urlToken === getQuestBotToken() || urlBot === 'quest') && !text.startsWith('/')) {
+            telemetryLog_(updateId, 'NL_QUEST', `Routing to NL parser`);
+            try {
+                const result = parseNLQuestUpdate(text, String(updateId));
+                sendReply(getQuestBotToken(), chatId, [result]);
+            }
+            catch (err) {
+                sendReply(getQuestBotToken(), chatId, [`❌ NLP Error: ${String(err)}`]);
+            }
+            return ContentService.createTextOutput("OK");
+        }
+        if ((urlToken === getSubquestBotToken() || urlBot === 'subquest') && !text.startsWith('/')) {
+            telemetryLog_(updateId, 'NL_SUBQUEST', `Routing to NL parser`);
+            try {
+                const result = parseNLSubquestApproval(text, String(updateId));
+                sendReply(getSubquestBotToken(), chatId, [result]);
+            }
+            catch (err) {
+                sendReply(getSubquestBotToken(), chatId, [`❌ NLP Error: ${String(err)}`]);
+            }
+            return ContentService.createTextOutput("OK");
+        }
+        if (urlToken === getNewQuestBotToken() || urlBot === 'newquest') {
+            telemetryLog_(updateId, 'NL_NEWQUEST', `Routing to new quest parser`);
+            try {
+                const result = parseNLNewQuest(text, String(updateId));
+                sendReply(getNewQuestBotToken(), chatId, [result]);
+            }
+            catch (err) {
+                sendReply(getNewQuestBotToken(), chatId, [`❌ NLP Error: ${String(err)}`]);
+            }
+            return ContentService.createTextOutput("OK");
+        }
+        // --- 5c. Routing ---
         let botToken = '';
         let algoId = '';
         if (urlToken === getMasterBotToken() || urlBot === 'master') {
@@ -77,6 +144,14 @@ function doPost(e) {
         else if (urlBot === 'task') {
             botToken = getTaskBotToken();
             algoId = 'taskalgo';
+        }
+        else if (urlToken === getQuestBotToken() || urlBot === 'quest') {
+            botToken = getQuestBotToken();
+            algoId = 'masteralgo';
+        }
+        else if (urlToken === getSubquestBotToken() || urlBot === 'subquest') {
+            botToken = getSubquestBotToken();
+            algoId = 'masteralgo';
         }
         else {
             botToken = getMasterBotToken();

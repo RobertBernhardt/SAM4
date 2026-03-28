@@ -95,3 +95,71 @@ function getReferencesPayload(algoId) {
     }
     return payload;
 }
+/**
+ * Loads references for a specific quest_id from the QuestReferences tab.
+ * Same loading logic as agent references (DOC, SHEET, URL, IMAGE).
+ */
+function getQuestReferencesPayload(questId) {
+    const payload = { textRefs: '', imageRefs: [] };
+    const ss = SpreadsheetApp.openById(getSamSheetId());
+    const sheet = ss.getSheetByName(QUEST_REFS_SHEET_NAME);
+    if (!sheet)
+        return payload;
+    const data = sheet.getDataRange().getDisplayValues();
+    for (let i = 1; i < data.length; i++) {
+        const row = data[i];
+        if (String(row[0]).trim() !== questId)
+            continue;
+        const refId = String(row[1]).trim();
+        const type = String(row[2]).trim().toUpperCase();
+        const desc = String(row[3]).trim();
+        try {
+            const match = refId.match(/\/d\/([-\w]{25,})/);
+            const cleanId = (match && match[1]) ? match[1] : refId;
+            if (type === 'IMAGE') {
+                const file = DriveApp.getFileById(cleanId);
+                const blob = file.getBlob();
+                payload.imageRefs.push({
+                    inlineData: {
+                        mimeType: blob.getContentType(),
+                        data: Utilities.base64Encode(blob.getBytes())
+                    }
+                });
+                Logger.log(`[REFERENCES] Injected Quest Image: ${desc}`);
+                continue;
+            }
+            payload.textRefs += `\n\n--- QUEST REFERENCE: ${desc} ---\n`;
+            if (type === 'DOC') {
+                payload.textRefs += DocumentApp.openById(cleanId).getBody().getText();
+            }
+            else if (type === 'SHEET') {
+                const refSs = SpreadsheetApp.openById(cleanId);
+                const sheets = refSs.getSheets();
+                sheets.forEach(refSheet => {
+                    const sheetName = refSheet.getName();
+                    const refData = refSheet.getDataRange().getDisplayValues();
+                    const validRows = refData.filter(row => row.some(cell => String(cell).trim() !== ''));
+                    if (validRows.length > 0) {
+                        payload.textRefs += `\n[TAB: ${sheetName}]\n`;
+                        payload.textRefs += validRows.map(r => r.join(' | ')).join('\n') + `\n`;
+                    }
+                });
+            }
+            else if (type === 'URL') {
+                const response = UrlFetchApp.fetch(refId, { muteHttpExceptions: true });
+                const rawHtml = response.getContentText();
+                const stripped = rawHtml
+                    .replace(/<style[^>]*>[\s\S]*?<\/style>/gi, '')
+                    .replace(/<script[^>]*>[\s\S]*?<\/script>/gi, '')
+                    .replace(/<[^>]+>/g, ' ')
+                    .replace(/\s+/g, ' ');
+                payload.textRefs += stripped.substring(0, 15000);
+            }
+        }
+        catch (e) {
+            payload.textRefs += `[FAILED TO LOAD QUEST REFERENCE: ${e}]`;
+            Logger.log(`[REFERENCES] Failed to load quest reference ${refId}: ${e}`);
+        }
+    }
+    return payload;
+}
