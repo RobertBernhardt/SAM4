@@ -427,9 +427,10 @@ function processQuests(): void {
         questRefs.textRefs ? `=== QUEST REFERENCES ===\n${questRefs.textRefs}\n` : '',
         `INSTRUCTIONS:`,
         `- This is Run #${runNumber}. Quest ID: "${quest.questId}".`,
-        `- Take exactly ONE meaningful step using your available tools.`,
-        `- After executing, use the append_quest_doc tool to save detailed results to the state doc.`,
-        `- Then structure your final output as:`,
+        `- You may invoke 'masteralgo' exactly ONCE per round to progress the quest.`,
+        `- You may freely use auxiliary tools like 'log_issue', 'suggest_subquest', or 'append_experience' alongside it if needed.`,
+        `- Always use 'append_quest_doc' to save detailed results to the state doc before concluding your turn.`,
+        `- Structure your final response exactly as follows:`,
         ``,
         `ACTIONS TAKEN:`,
         `[What you did]`,
@@ -516,7 +517,7 @@ function markLatestDeliveredAsReplied_(): void {
     for (let i = data.length - 1; i > 0; i--) {
         if (String(data[i][3]).trim() === 'DELIVERED') {
             sheet.getRange(i + 1, 4).setValue('REPLIED');
-            break;
+            // Do not break here! If there are old stuck DELIVERED messages, mark them all REPLIED to unstick the queue.
         }
     }
 }
