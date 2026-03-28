@@ -6,22 +6,24 @@
  */
 
 function executeScriptTool(toolName: string, args: Record<string, any>): any {
-    switch (toolName) {
+    const normalizedTool = toolName.toLowerCase().replace(/_/g, '');
+
+    switch (normalizedTool) {
         case 'calculator':
             return executeCalculator(args as any);
-        case 'searchImageGems':
+        case 'searchimagegems':
             return executeSearchImageGems(args as any);
-        case 'searchContentGems':
+        case 'searchcontentgems':
             return executeSearchContentGems(args as any);
-        case 'searchInteractiveGems':
+        case 'searchinteractivegems':
             return executeSearchInteractiveGems(args as any);
-        case 'log_issue':
+        case 'logissue':
             return executeIssueLogger(args as any);
-        case 'suggest_subquest':
+        case 'suggestsubquest':
             return executeSuggestSubquest(args as any);
-        case 'append_quest_doc':
+        case 'appendquestdoc':
             return executeAppendQuestDoc(args as any);
-        case 'append_experience':
+        case 'appendexperience':
             return executeAppendExperience(args as any);
         default:
             return { error: `Script tool execution failed: unmapped tool '${toolName}'` };

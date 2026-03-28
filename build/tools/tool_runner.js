@@ -5,22 +5,23 @@
  * to actual local TypeScript functions.
  */
 function executeScriptTool(toolName, args) {
-    switch (toolName) {
+    const normalizedTool = toolName.toLowerCase().replace(/_/g, '');
+    switch (normalizedTool) {
         case 'calculator':
             return executeCalculator(args);
-        case 'searchImageGems':
+        case 'searchimagegems':
             return executeSearchImageGems(args);
-        case 'searchContentGems':
+        case 'searchcontentgems':
             return executeSearchContentGems(args);
-        case 'searchInteractiveGems':
+        case 'searchinteractivegems':
             return executeSearchInteractiveGems(args);
-        case 'log_issue':
+        case 'logissue':
             return executeIssueLogger(args);
-        case 'suggest_subquest':
+        case 'suggestsubquest':
             return executeSuggestSubquest(args);
-        case 'append_quest_doc':
+        case 'appendquestdoc':
             return executeAppendQuestDoc(args);
-        case 'append_experience':
+        case 'appendexperience':
             return executeAppendExperience(args);
         default:
             return { error: `Script tool execution failed: unmapped tool '${toolName}'` };
