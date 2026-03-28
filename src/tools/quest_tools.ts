@@ -32,15 +32,28 @@ function executeSuggestSubquest(args: SuggestSubquestArgs): any {
 // ─── append_quest_doc ───────────────────────────────────────
 
 interface AppendQuestDocArgs {
-    quest_id: string;
-    run_number: number;
+    quest_id?: string;
+    run_number?: number;
     content: string;
     _caller_agent_id?: string;
+    _uid?: string;
 }
 
 function executeAppendQuestDoc(args: AppendQuestDocArgs): any {
-    if (!args.quest_id || !args.content) {
-        return { error: "Missing quest_id or content." };
+    let qId = args.quest_id;
+    let rNum = args.run_number;
+
+    // Auto-detect missing context from the execution UID
+    if (args._uid && args._uid.startsWith('quest_')) {
+        const match = args._uid.match(/^quest_(.+)_run(\d+)_/);
+        if (match) {
+            if (!qId) qId = match[1];
+            if (!rNum) rNum = parseInt(match[2], 10);
+        }
+    }
+
+    if (!qId || !args.content) {
+        return { error: "Missing quest_id or content. Please update your json payload to include quest_id." };
     }
 
     try {
@@ -50,20 +63,20 @@ function executeAppendQuestDoc(args: AppendQuestDocArgs): any {
         let docUrl = '';
 
         for (let i = 1; i < data.length; i++) {
-            if (String(data[i][0]).trim() === args.quest_id) {
+            if (String(data[i][0]).trim() === qId) {
                 docUrl = String(data[i][8] || '').trim(); // Col I = state_doc_url
                 break;
             }
         }
 
         if (!docUrl) {
-            return { error: `No state doc found for quest "${args.quest_id}". It may not have been created yet.` };
+            return { error: `No state doc found for quest "${qId}". It may not have been created yet.` };
         }
 
         const timestamp = new Date().toISOString();
         const structured = [
             ``,
-            `--- Run #${args.run_number || '?'} (${timestamp}) ---`,
+            `--- Run #${rNum || '?'} (${timestamp}) ---`,
             args.content
         ].join('\n');
 

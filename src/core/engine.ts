@@ -43,6 +43,7 @@ function runAlgo(algoId: string, uid: string, input: string): string[] {
         }
 
         let loopCount = 0;
+        let consecutiveToolErrors = 0;
         while (loopCount < config.maxToolCalls) {
             loopCount++;
 
@@ -125,16 +126,22 @@ function runAlgo(algoId: string, uid: string, input: string): string[] {
                     state.data.history.push({ role: 'model', parts: parts });
                 }
 
+                let hadToolError = false;
+
                 for (const fCall of fCalls) {
                     const tDef = toolsDef.find(t => t.name === fCall.name);
                     let resultObj: any;
 
                     if (!tDef) {
                         resultObj = { error: `Tool ${fCall.name} not defined for ${algoId}` };
+                        hadToolError = true;
                     } else if (tDef.type === 'SCRIPT') {
-                        // Execute local GAS tool — auto-inject caller agent ID
-                        const argsWithCaller = { ...fCall.args, _caller_agent_id: algoId };
+                        // Execute local GAS tool — auto-inject caller agent ID and execution UID
+                        const argsWithCaller = { ...fCall.args, _caller_agent_id: algoId, _uid: uid };
                         resultObj = executeScriptTool(fCall.name, argsWithCaller);
+                        if (resultObj && typeof resultObj === 'object' && resultObj.error) {
+                            hadToolError = true;
+                        }
                     } else if (tDef.type === 'AGENT') {
                         // Recursive call to run another algo
                         // Treat args as stringified input to sub-agent
@@ -145,12 +152,27 @@ function runAlgo(algoId: string, uid: string, input: string): string[] {
                             resultObj = { output: childOutput };
                         } catch (e) {
                             resultObj = { error: `Agent tool failure: ${e}` };
+                            hadToolError = true;
                         }
                     } else {
                         resultObj = { error: `Unknown tool type: ${tDef.type}` };
+                        hadToolError = true;
                     }
 
                     state.data.history.push(functionResponseMessage(fCall.name, resultObj));
+                }
+
+                if (hadToolError) {
+                    consecutiveToolErrors++;
+                } else {
+                    consecutiveToolErrors = 0;
+                }
+
+                if (consecutiveToolErrors >= 3) {
+                    updateState(uid, { status: 'error' });
+                    const lastErr = state.data.history[state.data.history.length - 1];
+                    const errMsg = lastErr && lastErr.parts ? JSON.stringify(lastErr.parts) : 'Unknown error';
+                    return [`❌ Error (${algoId}): Agent got stuck in a repetitive tool error loop and failed 3 times in a row. Last error: ${errMsg}`];
                 }
 
                 // After evaluating all parallel tool calls from this message, 

@@ -235,6 +235,7 @@ The scheduling algorithm ensures variety while respecting priorities:
 - **Review Permissions**: Whenever you add a new feature that touches Google Drive, Docs, Sheets, or External APIs, Google will silently pause your webhooks until you manually click **Run -> Review Permissions** on a function inside the web editor.
 - **Quest Engine Safety**: The quest engine runs through `questalgo`, which delegates to `masteralgo`. Make sure `masteralgo` has the right tools connected in `Connections` for your quests to work. If a quest needs web search, `masteralgo` needs access to a `searchWeb` tool.
 - **Global Tools**: Tools connected with `parent_id = *` in the Connections tab are automatically available to ALL agents. Use this for `log_issue` and `append_experience`.
+- **Gemini Free Tier Rate Limits (RPM)**: Free tier models like Gemini 1.5 Flash Lite have a strict 15 Requests Per Minute limit. To prevent crashes during long tool loops, `gemini_client.ts` contains a workaround (`_apiCallsThisExecution` tracking). It forces `Utilities.sleep(61000)` every 13 API calls. **When upgrading to a paid Google AI Studio tier**, delete this sleep workaround in `src/core/gemini_client.ts` to restore maximum execution speed.
 
 ---
 *End of Document*

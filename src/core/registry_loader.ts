@@ -63,7 +63,7 @@ function getAlgoConfig(algoId: string): AlgoConfig {
             model: resolveModel('system'),
             systemPrompt: 'You are a JSON parser for the SAM Quest Engine.\n\nYou receive a Quest ID, its current progress %, and the Creator\'s natural language reply.\n\nExtract the Creator\'s intended new progress percentage and their feedback.\n\nRules:\n- If they state a number explicitly (e.g. "35%"), use it.\n- If they say "looks good, continue", add +10 to the current progress.\n- If they say "done" or "finished" or "perfect", set progress to 100.\n- If they express dissatisfaction without a number, keep the current progress unchanged.\n- Always extract the full feedback as a clean sentence.\n\nOutput ONLY valid minified JSON:\n{"progress": <number>, "feedback": "<string>"}',
             temperature: 0,
-            maxToolCalls: 5,
+            maxToolCalls: 15,
             thinkingBudget: 1024,
             experienceDocUrl: ''
         };
@@ -76,7 +76,7 @@ function getAlgoConfig(algoId: string): AlgoConfig {
             model: resolveModel('system'),
             systemPrompt: 'You are a JSON parser for the SAM Quest Engine.\n\nYou receive a pending Subquest Proposal and the Creator\'s natural language reply.\n\nDetermine if the Creator APPROVED or REJECTED this subquest.\n\nRules:\n- Words like "yes", "approve", "ok", "go ahead" -> APPROVE\n- Words like "no", "reject", "don\'t", "skip" -> REJECT\n- If they mention a weight number, use it. Otherwise keep the suggested weight.\n- If they modify the description, output the modified version.\n\nOutput ONLY valid minified JSON:\n{"action": "APPROVE", "weight": <number>, "description": "<string>"}\nor\n{"action": "REJECT", "weight": 0, "description": ""}',
             temperature: 0,
-            maxToolCalls: 5,
+            maxToolCalls: 15,
             thinkingBudget: 1024,
             experienceDocUrl: ''
         };
@@ -89,7 +89,7 @@ function getAlgoConfig(algoId: string): AlgoConfig {
             model: resolveModel('system'),
             systemPrompt: 'You are the Experience Document Reviewer for the SAM agent system.\n\nYou receive the full contents of an agent\'s experience log.\n\nYour task:\n1. Remove outdated or redundant lessons.\n2. Merge duplicate insights into concise entries.\n3. Remove stale advice about things that have been fixed.\n4. Keep only actionable, specific advice.\n5. Maintain chronological order for recent entries.\n\nOutput the COMPLETE cleaned document content, ready to replace the original. Keep the header intact.',
             temperature: 0,
-            maxToolCalls: 5,
+            maxToolCalls: 15,
             thinkingBudget: 8192,
             experienceDocUrl: ''
         };
@@ -102,7 +102,7 @@ function getAlgoConfig(algoId: string): AlgoConfig {
             model: resolveModel('system'),
             systemPrompt: 'You are a JSON parser for the SAM Quest Engine.\n\nThe Creator wants to create a new quest and has described it in natural language.\n\nExtract:\n- quest_id: A short, unique snake_case identifier (e.g. "find_plumbers_berlin")\n- description: A clean, complete description of the quest objective\n- weight: Priority 1-100 (default 10 if not mentioned. Higher = more frequent execution)\n\nOutput ONLY valid minified JSON:\n{"quest_id": "<string>", "description": "<string>", "weight": <number>}',
             temperature: 0,
-            maxToolCalls: 5,
+            maxToolCalls: 15,
             thinkingBudget: 1024,
             experienceDocUrl: ''
         };
@@ -149,7 +149,7 @@ function getAlgoConfig(algoId: string): AlgoConfig {
                 systemPrompt: systemPromptRaw,
                 model: resolveModel(String(row[2] || 'system').trim()),
                 temperature: Number(row[3]) || 0.5,
-                maxToolCalls: 5,
+                maxToolCalls: 15,
                 thinkingBudget: thinkingBudget,
                 experienceDocUrl: String(row[8] || '').trim(), // Col I
             };

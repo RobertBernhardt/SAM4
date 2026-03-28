@@ -56,6 +56,8 @@ function enforceDailyTokenLimit_() {
  * Handles headers, payload construction, error logging,
  * usage tracking, and daily limit enforcement.
  */
+// Module-level variable to track total calls in this GAS execution
+let _apiCallsThisExecution = 0;
 function callGemini(options) {
     // Enforce daily limit BEFORE making the call
     enforceDailyTokenLimit_();
@@ -105,6 +107,11 @@ function callGemini(options) {
         muteHttpExceptions: true,
     };
     try {
+        _apiCallsThisExecution++;
+        if (_apiCallsThisExecution > 0 && _apiCallsThisExecution % 13 === 0) {
+            Logger.log(`[GEMINI_CLIENT] Reached ${_apiCallsThisExecution} API calls in this execution. Pausing for 61 seconds to respect Gemini 15 RPM limit...`);
+            Utilities.sleep(61000);
+        }
         const response = UrlFetchApp.fetch(url, fetchOptions);
         const statusCode = response.getResponseCode();
         const body = response.getContentText();
