@@ -32,7 +32,7 @@ function getGemBotToken(): string {
     return getScriptProp_('GEM_BOT_TOKEN');
 }
 
-/** Bug bot token — writes user text to Issues sheet as BUG. */
+/** Bug bot token — now the Issues notification bot (sends new agent issues to Creator). */
 function getBugBotToken(): string {
     return getScriptProp_('BUG_BOT_TOKEN');
 }
@@ -45,6 +45,21 @@ function getFailBotToken(): string {
 /** Task bot token — taskalgo bot */
 function getTaskBotToken(): string {
     return getScriptProp_('TASK_BOT_TOKEN');
+}
+
+/** Quest bot token — used by the autonomous quest engine for reports */
+function getQuestBotToken(): string {
+    return getScriptProp_('QUEST_BOT_TOKEN');
+}
+
+/** Subquest bot token — used for suggesting and approving subquests */
+function getSubquestBotToken(): string {
+    return getScriptProp_('SUBQUEST_BOT_TOKEN');
+}
+
+/** NewQuest bot token — Creator manually creates quests via natural language */
+function getNewQuestBotToken(): string {
+    return getScriptProp_('NEWQUEST_BOT_TOKEN');
 }
 
 /** Admin chat ID for push automations */
@@ -86,6 +101,18 @@ const ISSUES_SHEET_NAME = 'Issues';
 /** The sheet name for queued background jobs. */
 const QUEUE_SHEET_NAME = 'Queue';
 
+/** The sheet name for the active quest backlog. */
+const QUESTS_SHEET_NAME = 'Quests';
+
+/** The sheet name for quest execution logs (scoped per quest). */
+const QUEST_LOGS_SHEET_NAME = 'QuestLogs';
+
+/** The sheet name for the Telegram message outbox (event-driven delivery). */
+const OUTBOX_SHEET_NAME = 'Outbox';
+
+/** The sheet name for quest-specific references. */
+const QUEST_REFS_SHEET_NAME = 'QuestReferences';
+
 /** The spreadsheet ID for agent state (set in Script Properties). */
 function getStateSpreadsheetId(): string {
     return getScriptProp_('STATE_SPREADSHEET_ID');
@@ -94,4 +121,9 @@ function getStateSpreadsheetId(): string {
 /** The SAM (central registry) spreadsheet ID. */
 function getSamSheetId(): string {
     return getScriptProp_('SAM_SHEET_ID');
+}
+
+/** Google Drive folder ID for auto-created quest state and experience docs. */
+function getQuestDocsFolderId(): string {
+    return getScriptProp_('QUEST_DOCS_FOLDER_ID');
 }

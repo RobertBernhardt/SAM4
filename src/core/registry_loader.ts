@@ -9,6 +9,7 @@ interface AlgoConfig {
     temperature: number;
     maxToolCalls: number;
     thinkingBudget: number;
+    experienceDocUrl: string;
 }
 
 interface ToolDefinition {
@@ -68,7 +69,8 @@ function getAlgoConfig(algoId: string): AlgoConfig {
                 model: String(row[2] || DEFAULT_MODEL).trim(),
                 temperature: Number(row[3]) || 0.5,
                 maxToolCalls: 5,
-                thinkingBudget: thinkingBudget
+                thinkingBudget: thinkingBudget,
+                experienceDocUrl: String(row[8] || '').trim(), // Col I
             };
             break;
         }
@@ -106,6 +108,16 @@ function getTools(algoId: string): ToolDefinition[] {
     for (let i = 1; i < connData.length; i++) {
         if (String(connData[i][0]).trim() === algoId && connData[i][1]) {
             toolNames.push(String(connData[i][1]).trim());
+        }
+    }
+
+    // Wildcard connections: tools available to ALL agents (e.g. log_issue)
+    for (let i = 1; i < connData.length; i++) {
+        if (String(connData[i][0]).trim() === '*' && connData[i][1]) {
+            const wildcardTool = String(connData[i][1]).trim();
+            if (!toolNames.includes(wildcardTool)) {
+                toolNames.push(wildcardTool);
+            }
         }
     }
 

@@ -58,13 +58,28 @@ function runAlgo(algoId: string, uid: string, input: string): string[] {
                 }))
             }] : [];
 
-            // Inject the current time AND any dynamic references so the LLM has zero hallucinations
+            // Inject the current time, agent identity, experience, AND any dynamic references
             const currentTimeStr = new Date().toString();
             const refs = typeof getReferencesPayload === 'function' ? getReferencesPayload(algoId) : { textRefs: '', imageRefs: [] };
-            
-            const injectedSystemPrompt = `${config.systemPrompt}\n\n` + 
-                (refs.textRefs ? `[KNOWLEDGE BASE]\n${refs.textRefs}\n\n` : '') +
-                `[SYSTEM CLOCK: The current real-world time is ${currentTimeStr}]`;
+
+            // Auto-create experience doc on first run if missing
+            let experienceContent = '';
+            if (!config.experienceDocUrl && typeof ensureExperienceDoc_ === 'function') {
+                config.experienceDocUrl = ensureExperienceDoc_(algoId);
+            }
+            if (config.experienceDocUrl) {
+                experienceContent = typeof readDocContent === 'function' ? readDocContent(config.experienceDocUrl) : '';
+            }
+
+            let injectedSystemPrompt = config.systemPrompt + '\n\n';
+            injectedSystemPrompt += `[AGENT IDENTITY: You are agent "${algoId}". Use this ID when logging issues or experience.]\n\n`;
+            if (experienceContent) {
+                injectedSystemPrompt += `[AGENT EXPERIENCE]\n${experienceContent}\n\n`;
+            }
+            if (refs.textRefs) {
+                injectedSystemPrompt += `[KNOWLEDGE BASE]\n${refs.textRefs}\n\n`;
+            }
+            injectedSystemPrompt += `[SYSTEM CLOCK: The current real-world time is ${currentTimeStr}]`;
 
             
             // Reconstruct the message payload. We safely inject heavy Image Base64 blobs 
@@ -117,8 +132,9 @@ function runAlgo(algoId: string, uid: string, input: string): string[] {
                     if (!tDef) {
                         resultObj = { error: `Tool ${fCall.name} not defined for ${algoId}` };
                     } else if (tDef.type === 'SCRIPT') {
-                        // Execute local GAS tool explicitly mapped manually
-                        resultObj = executeScriptTool(fCall.name, fCall.args);
+                        // Execute local GAS tool — auto-inject caller agent ID
+                        const argsWithCaller = { ...fCall.args, _caller_agent_id: algoId };
+                        resultObj = executeScriptTool(fCall.name, argsWithCaller);
                     } else if (tDef.type === 'AGENT') {
                         // Recursive call to run another algo
                         // Treat args as stringified input to sub-agent
