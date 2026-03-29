@@ -314,10 +314,15 @@ function queueOutboxMessage_(questId: string, message: string, bot: string, meta
     }
 
     if (!hasPending && !hasDeliveredAwaiting) {
-        // Nothing pending and no outstanding delivery — send immediately
-        sheet.appendRow([new Date().toISOString(), questId, message, 'DELIVERED', bot, metadata || '']);
-        deliverMessage_(message, bot, metadata);
-        Logger.log(`[OUTBOX] Sent immediately: ${questId} via ${bot}`);
+        // Nothing pending and no outstanding delivery — try to send immediately
+        try {
+            deliverMessage_(message, bot, metadata);
+            sheet.appendRow([new Date().toISOString(), questId, message, 'DELIVERED', bot, metadata || '']);
+            Logger.log(`[OUTBOX] Sent immediately: ${questId} via ${bot}`);
+        } catch (err) {
+            sheet.appendRow([new Date().toISOString(), questId, message, `ERROR: ${err.message}`, bot, metadata || '']);
+            Logger.log(`[OUTBOX] Failed immediate send: ${err.message}`);
+        }
     } else {
         sheet.appendRow([new Date().toISOString(), questId, message, 'PENDING', bot, metadata || '']);
         Logger.log(`[OUTBOX] Queued: ${questId} (bot=${bot})`);
@@ -350,11 +355,16 @@ function deliverNextOutboxMessage_(): boolean {
             const bot = String(data[i][4] || 'quest').trim();
             const metadata = String(data[i][5] || '').trim();
 
-            sheet.getRange(i + 1, 4).setValue('DELIVERED');
+            try {
+                deliverMessage_(message, bot, metadata);
+                sheet.getRange(i + 1, 4).setValue('DELIVERED');
+                Logger.log(`[OUTBOX] Delivered next: ${data[i][1]} via ${bot}`);
+            } catch (err) {
+                sheet.getRange(i + 1, 4).setValue(`ERROR: ${err.message}`);
+                Logger.log(`[OUTBOX] Failed deliver next: ${err.message}`);
+            }
+            
             SpreadsheetApp.flush();
-
-            deliverMessage_(message, bot, metadata);
-            Logger.log(`[OUTBOX] Delivered next: ${data[i][1]} via ${bot}`);
             return true;
         }
     }
