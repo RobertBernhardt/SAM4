@@ -393,11 +393,14 @@ function processQuests() {
         logSheet.getRange(logRowIndex, 4).setValue(actions.substring(0, 5000));
         logSheet.getRange(logRowIndex, 5).setValue(lessons.substring(0, 5000));
         const docLink = stateDocUrl ? `\n📄 State doc: ${stateDocUrl}` : '';
+        // Escape asterisks and underscores in the report to prevent Telegram Markdown parsing errors
+        // (if the LLM output contains a single underscore like 'log_issue', it breaks the parser)
+        const safeReport = report.replace(/_/g, '\\_').replace(/\*/g, '\\*');
         const telegramReport = [
             `📋 *Quest: ${quest.questId}* (Run #${runNumber})`,
             `Progress: ${quest.progress}%`,
             ``,
-            report,
+            safeReport,
             docLink,
             ``,
             `_Reply naturally with your feedback and progress._`,

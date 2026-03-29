@@ -44,11 +44,24 @@ function runAlgo(algoId, uid, input) {
             Logger.log(`[ENGINE] Loop ${loopCount}: ${toolsDef.length} tool(s) loaded`);
             // Convert to Gemini format
             const geminiTools = toolsDef.length > 0 ? [{
-                    functionDeclarations: toolsDef.map(t => ({
-                        name: t.name,
-                        description: t.schema.description || '',
-                        parameters: t.schema.parameters || { type: 'object', properties: {} }
-                    }))
+                    functionDeclarations: toolsDef.map(t => {
+                        const params = { ...t.schema };
+                        delete params.description; // Strip outer description so it doesn't pollute the JSON Schema
+                        // Handle both direct JSON schemas (e.g. {"type": "object", "properties":...})
+                        // and nested schemas (if the user accidentally wrapped it in "parameters": {...})
+                        let finalParams = params;
+                        if (params.parameters) {
+                            finalParams = params.parameters;
+                        }
+                        else if (!params.properties) {
+                            finalParams = { type: 'object', properties: {} };
+                        }
+                        return {
+                            name: t.name,
+                            description: t.schema.description || '',
+                            parameters: finalParams
+                        };
+                    })
                 }] : [];
             // Inject the current time, agent identity, experience, AND any dynamic references
             const currentTimeStr = new Date().toString();
