@@ -26,11 +26,11 @@ function getMasterBotToken() {
 function getGemBotToken() {
     return getScriptProp_('GEM_BOT_TOKEN');
 }
-/** Bug bot token — now the Issues notification bot (sends new agent issues to Creator). */
-function getBugBotToken() {
+/** Agent bot token — for sending agent tips to the creator. Uses BUG_BOT_TOKEN internally so env doesn't break. */
+function getAgentBotToken() {
     return getScriptProp_('BUG_BOT_TOKEN');
 }
-/** Fail bot token — writes user text to Issues sheet as FAIL. */
+/** Fail bot token — writes user text to Issues sheet as FAIL. (Currently unused but kept for expansion) */
 function getFailBotToken() {
     return getScriptProp_('FAIL_BOT_TOKEN');
 }
@@ -71,7 +71,7 @@ const DEFAULT_THINKING_BUDGET = 0;
  * Script Properties) exceeds this value, all model calls
  * are hard-stopped.
  */
-const DAILY_TOKEN_LIMIT = 1000000;
+const DAILY_TOKEN_LIMIT = 2500000;
 // ─── Sheet Names ────────────────────────────────────────────
 /** The spreadsheet sheet name used for agent state persistence. */
 const STATE_SHEET_NAME = 'AgentState';

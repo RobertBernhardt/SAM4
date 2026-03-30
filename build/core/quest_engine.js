@@ -4,27 +4,23 @@
  * Quests Tab Columns (SAM Sheet):
  *   A: quest_id        — Unique string identifier.
  *   B: description     — What the quest is about.
- *   C: progress        — 0–100, set by the creator via Telegram feedback.
- *   D: status          — ACTIVE | PAUSED | FINISHED.
- *   E: weight          — 1–100 priority. Higher = triggered more often.
- *   F: current_score   — Accumulates weight each tick. Highest gets picked.
- *   G: last_feedback   — The creator's latest Telegram feedback text.
- *   H: parent_id       — If this is a subquest, the ID of its mother quest.
- *   I: state_doc_url   — Google Doc URL for this quest's living memory.
+ *   C: status          — ACTIVE | PAUSED | FINISHED.
+ *   D: weight          — 1–100 priority. Higher = triggered more often.
+ *   E: current_score   — Accumulates weight each tick. Highest gets picked.
+ *   F: parent_id       — If this is a subquest, the ID of its mother quest.
  *
  * QuestLogs Tab Columns (State Sheet):
  *   A: timestamp
  *   B: quest_id
  *   C: run_number      — Incrementing per quest.
- *   D: agent_actions   — What the agent did this run.
- *   E: lessons_learned — What the agent learned.
+ *   D: agent_actions   — Optional trace of what the agent did.
+ *   E: report_doc_url  — Google Doc URL containing the full execution report.
  *   F: creator_feedback — Filled in later via /update.
- *   G: progress_after  — Filled in later via /update.
  *
  * Outbox Tab Columns (State Sheet):
  *   D: status          — PENDING | DELIVERED.
- *   E: bot             — quest | subquest
- *   F: metadata        — JSON string (e.g. subquest proposal details)
+ *   E: bot             — quest | subquest | agent
+ *   F: metadata        — JSON string (e.g. proposal details)
  */
 // ─── Sheet Accessors ────────────────────────────────────────
 function getQuestsSheet_() {
@@ -32,7 +28,7 @@ function getQuestsSheet_() {
     let sheet = ss.getSheetByName(QUESTS_SHEET_NAME);
     if (!sheet) {
         sheet = ss.insertSheet(QUESTS_SHEET_NAME);
-        sheet.appendRow(['quest_id', 'description', 'progress', 'status', 'weight', 'current_score', 'last_feedback', 'parent_id', 'state_doc_url']);
+        sheet.appendRow(['quest_id', 'description', 'status', 'weight', 'current_score', 'parent_id']);
         sheet.setFrozenRows(1);
     }
     return sheet;
@@ -42,7 +38,7 @@ function getQuestLogsSheet_() {
     let sheet = ss.getSheetByName(QUEST_LOGS_SHEET_NAME);
     if (!sheet) {
         sheet = ss.insertSheet(QUEST_LOGS_SHEET_NAME);
-        sheet.appendRow(['timestamp', 'quest_id', 'run_number', 'agent_actions', 'lessons_learned', 'creator_feedback', 'progress_after']);
+        sheet.appendRow(['timestamp', 'quest_id', 'run_number', 'agent_actions', 'report_doc_url', 'creator_feedback']);
         sheet.setFrozenRows(1);
     }
     return sheet;
@@ -64,20 +60,17 @@ function selectNextQuest_() {
         return null;
     const quests = [];
     for (let i = 1; i < data.length; i++) {
-        const status = String(data[i][3]).trim().toUpperCase();
+        const status = String(data[i][2]).trim().toUpperCase(); // Col C
         if (status !== 'ACTIVE')
             continue;
         quests.push({
             rowIndex: i + 1,
             questId: String(data[i][0]).trim(),
             description: String(data[i][1]).trim(),
-            progress: Number(data[i][2]) || 0,
             status: status,
-            weight: Math.max(1, Math.min(100, Number(data[i][4]) || 1)),
-            currentScore: Number(data[i][5]) || 0,
-            lastFeedback: String(data[i][6] || '').trim(),
-            parentId: String(data[i][7] || '').trim(),
-            stateDocUrl: String(data[i][8] || '').trim(),
+            weight: Math.max(1, Math.min(100, Number(data[i][3]) || 1)), // Col D
+            currentScore: Number(data[i][4]) || 0, // Col E
+            parentId: String(data[i][5] || '').trim(), // Col F
         });
     }
     if (quests.length === 0)
@@ -87,26 +80,31 @@ function selectNextQuest_() {
     const logData = logSheet.getDataRange().getValues();
     const latestFeedback = {};
     const latestRunNum = {};
-    const latestLessons = {};
+    const latestDocUrl = {};
     const latestActions = {};
     for (let i = 1; i < logData.length; i++) {
         const qid = String(logData[i][1]).trim();
         const runNum = Number(logData[i][2]) || 0;
         if (!latestRunNum[qid] || runNum > latestRunNum[qid]) {
             latestRunNum[qid] = runNum;
-            latestActions[qid] = String(logData[i][3] || '').trim();
-            latestLessons[qid] = String(logData[i][4] || '').trim();
-            latestFeedback[qid] = String(logData[i][5] || '').trim();
+            latestActions[qid] = String(logData[i][3] || '').trim(); // Col D
+            latestDocUrl[qid] = String(logData[i][4] || '').trim(); // Col E
+            latestFeedback[qid] = String(logData[i][5] || '').trim(); // Col F
         }
     }
     const awaitingFeedback = new Set();
     for (const q of quests) {
         if (latestRunNum[q.questId]) {
             const hasFeedback = latestFeedback[q.questId] !== '';
-            const isCrash = latestActions[q.questId].startsWith('[CRASHED]') || latestLessons[q.questId].startsWith('[ERROR]');
-            const isTimeout = latestLessons[q.questId].startsWith('[TIMEOUT]');
-            const isExecuting = latestActions[q.questId].startsWith('[EXECUTING]') && latestLessons[q.questId] === '';
-            if (!hasFeedback && !isCrash && !isTimeout && !isExecuting) {
+            const isCrash = latestActions[q.questId].startsWith('[CRASHED]');
+            const isTimeout = latestActions[q.questId].startsWith('[TIMEOUT]');
+            const isExecuting = latestActions[q.questId].startsWith('[EXECUTING]') && latestDocUrl[q.questId] === '';
+            // If there's a doc URL (meaning report generated) but NO feedback, it's awaiting feedback
+            if (latestDocUrl[q.questId] !== '' && !hasFeedback) {
+                awaitingFeedback.add(q.questId);
+            }
+            // If it's crashed or timeout, we don't automatically trigger it again unless feedback is provided
+            if ((isCrash || isTimeout) && !hasFeedback) {
                 awaitingFeedback.add(q.questId);
             }
         }
@@ -119,7 +117,7 @@ function selectNextQuest_() {
     const eligible = quests.filter(q => !awaitingFeedback.has(q.questId));
     if (eligible.length === 0) {
         for (const q of quests) {
-            sheet.getRange(q.rowIndex, 6).setValue(q.currentScore);
+            sheet.getRange(q.rowIndex, 5).setValue(q.currentScore); // Col E
         }
         SpreadsheetApp.flush();
         Logger.log('[QUEST_ENGINE] All active quests are awaiting Creator feedback. Skipping.');
@@ -135,102 +133,22 @@ function selectNextQuest_() {
     winner.currentScore = 1;
     // Write ALL updated scores back
     for (const q of quests) {
-        sheet.getRange(q.rowIndex, 6).setValue(q.currentScore);
+        sheet.getRange(q.rowIndex, 5).setValue(q.currentScore); // Col E
     }
     SpreadsheetApp.flush();
     Logger.log(`[QUEST_ENGINE] Selected quest: ${winner.questId} (${awaitingFeedback.size} awaiting feedback)`);
     return winner;
 }
-// ─── Quest Log Loader (Context Scoping) ─────────────────────
-function formatLogEntry_(row) {
-    const runNum = row[2];
-    const actions = String(row[3] || '').trim();
-    const lessons = String(row[4] || '').trim();
-    const feedback = String(row[5] || '').trim();
-    const progressAfter = row[6];
-    let entry = `--- Run #${runNum} (${row[0]}) ---\n`;
-    if (actions)
-        entry += `Actions: ${actions}\n`;
-    if (lessons)
-        entry += `Lessons: ${lessons}\n`;
-    if (feedback)
-        entry += `Creator Feedback: ${feedback}\n`;
-    if (progressAfter !== '' && progressAfter !== undefined)
-        entry += `Progress After: ${progressAfter}%\n`;
-    return entry;
-}
-/**
- * Loads all previous QuestLogs for a specific quest_id.
- * If this quest is a parent and has ACTIVE subquests, it also loads their history.
- */
-function loadQuestHistory_(questId) {
-    const logSheet = getQuestLogsSheet_();
-    const logData = logSheet.getDataRange().getValues();
-    const questSheet = getQuestsSheet_();
-    const questData = questSheet.getDataRange().getValues();
-    // Find active subquests for this quest
-    const activeSubquests = new Set();
-    for (let i = 1; i < questData.length; i++) {
-        const qid = String(questData[i][0]).trim();
-        const status = String(questData[i][3]).trim().toUpperCase();
-        const parentId = String(questData[i][7] || '').trim();
-        if (parentId === questId && status === 'ACTIVE') {
-            activeSubquests.add(qid);
-        }
-    }
-    const logs = [];
-    logs.push('=== YOUR RUN HISTORY ===');
-    let hasOwnLogs = false;
-    for (let i = 1; i < logData.length; i++) {
-        if (String(logData[i][1]).trim() === questId) {
-            logs.push(formatLogEntry_(logData[i]));
-            hasOwnLogs = true;
-        }
-    }
-    if (!hasOwnLogs)
-        logs.push('(No previous runs for this quest.)');
-    if (activeSubquests.size > 0) {
-        logs.push('\n=== ACTIVE SUBQUESTS ===');
-        logs.push('These are active subquests you spawned. You can track their progress here.');
-        for (const subId of activeSubquests) {
-            logs.push(`\n[ Subquest: ${subId} ]`);
-            let hasSubLogs = false;
-            for (let i = 1; i < logData.length; i++) {
-                if (String(logData[i][1]).trim() === subId) {
-                    logs.push(formatLogEntry_(logData[i]));
-                    hasSubLogs = true;
-                }
-            }
-            if (!hasSubLogs)
-                logs.push('(No runs yet for this subquest.)');
-        }
-    }
-    return logs.join('\n');
-}
-function getNextRunNumber_(questId) {
-    const sheet = getQuestLogsSheet_();
-    const data = sheet.getDataRange().getValues();
-    let maxRun = 0;
-    for (let i = 1; i < data.length; i++) {
-        if (String(data[i][1]).trim() === questId) {
-            const runNum = Number(data[i][2]) || 0;
-            if (runNum > maxRun)
-                maxRun = runNum;
-        }
-    }
-    return maxRun + 1;
-}
-// ─── Timeout Detection ──────────────────────────────────────
 function detectAndMarkTimeouts_() {
     const sheet = getQuestLogsSheet_();
     const data = sheet.getDataRange().getValues();
     if (data.length <= 1)
         return;
     for (let i = 1; i < data.length; i++) {
-        const actions = String(data[i][3] || '').trim();
-        const lessons = String(data[i][4] || '').trim();
-        if (actions && !lessons) {
-            sheet.getRange(i + 1, 5).setValue('[TIMEOUT] GAS execution limit reached before this run could complete.');
+        const actions = String(data[i][3] || '').trim(); // Col D
+        const docUrl = String(data[i][4] || '').trim(); // Col E
+        if (actions.startsWith('[EXECUTING]') && !docUrl) {
+            sheet.getRange(i + 1, 4).setValue('[TIMEOUT] GAS limit reached before this run completed.'); // Col D
             Logger.log(`[QUEST_ENGINE] Marked timeout for quest ${data[i][1]}, run #${data[i][2]}`);
         }
     }
@@ -334,19 +252,24 @@ function cleanupOutbox_() {
     }
 }
 // ─── Core Quest Execution ───────────────────────────────────
+function getNextRunNumber_(questId) {
+    const sheet = getQuestLogsSheet_();
+    const data = sheet.getDataRange().getValues();
+    let maxRun = 0;
+    for (let i = 1; i < data.length; i++) {
+        if (String(data[i][1]).trim() === questId) {
+            const runNum = Number(data[i][2]) || 0;
+            if (runNum > maxRun)
+                maxRun = runNum;
+        }
+    }
+    return maxRun + 1;
+}
 function processQuests() {
     detectAndMarkTimeouts_();
     const quest = selectNextQuest_();
     if (!quest)
         return;
-    // Auto-create state doc if missing
-    const stateDocUrl = ensureQuestStateDoc_(quest.questId, quest.description);
-    const stateDocContent = stateDocUrl ? readDocContent(stateDocUrl) : '';
-    // Load quest-specific references
-    const questRefs = typeof getQuestReferencesPayload === 'function'
-        ? getQuestReferencesPayload(quest.questId)
-        : { textRefs: '', imageRefs: [] };
-    const history = loadQuestHistory_(quest.questId);
     const runNumber = getNextRunNumber_(quest.questId);
     // Pre-write log row (timeout safety net)
     const logSheet = getQuestLogsSheet_();
@@ -355,82 +278,79 @@ function processQuests() {
         quest.questId,
         runNumber,
         `[EXECUTING] Quest "${quest.questId}" Run #${runNumber} started...`,
-        '', '', ''
+        '', '' // report doc url, feedback
     ]);
     SpreadsheetApp.flush();
-    const logData = logSheet.getDataRange().getValues();
-    const logRowIndex = logData.length;
-    const subtypeNotice = quest.parentId ? `\nNote: You are a SUBQUEST spawned by "${quest.parentId}".` : '';
-    const questPrompt = [
-        `You are executing Quest "${quest.questId}".${subtypeNotice}`,
-        ``,
-        `QUEST DESCRIPTION:`,
-        quest.description,
-        ``,
-        `CURRENT PROGRESS: ${quest.progress}%`,
-        ``,
-        quest.lastFeedback ? `LATEST CREATOR FEEDBACK:\n${quest.lastFeedback}` : '(No feedback from Creator yet.)',
-        ``,
-        history,
-        ``,
-        stateDocContent ? `=== QUEST STATE DOCUMENT ===\n${stateDocContent}\n` : '',
-        questRefs.textRefs ? `=== QUEST REFERENCES ===\n${questRefs.textRefs}\n` : '',
-        `CRITICAL INSTRUCTION - STRICT EXECUTION SEQUENCE:`,
-        `You MUST execute your turn precisely in the following order. Do not skip steps.`,
-        `1. PLANNING: Analyze the quest description, progress, history, and state doc. Formulate a plan for this specific Run #${runNumber}.`,
-        `2. DELEGATE TO MASTERALGO (Required): Invoke the 'masteralgo' tool exactly ONCE with a specific prompt to execute the main part of your plan.`,
-        `3. UPDATE STATE DOC (Required): Use the 'append_quest_doc' tool to save the detailed results of the masteralgo execution to the state doc. Never skip this.`,
-        `4. LOG ISSUES (Optional): If you encountered systematic bugs or missing tools, use the 'log_issue' tool.`,
-        `5. SUGGEST SUBQUESTS (Optional): If the task is too large and requires delegation, use the 'suggest_subquest' tool.`,
-        `6. UPDATE LEARNING FILE (Required): Use the 'append_experience' tool to log what worked, what failed, and new insights gained during this run. Never skip this.`,
-        `7. FINAL REPORT (Required): Once all tool calls have successfully completed, conclude your turn by producing a final text response EXACTLY in the following format:`,
-        ``,
-        `ACTIONS TAKEN:`,
-        `[Detailed list of what you planned, what you delegated to masteralgo, and what state was updated]`,
-        ``,
-        `LESSONS LEARNED:`,
-        `[Summary of insights added to your learning file via append_experience]`,
-        ``,
-        `REPORT TO CREATOR:`,
-        `[Concise summary of progress, current roadblocks, and suggestions for next steps. This is the Telegram message sending to Creator]`,
-    ].join('\n');
     const uid = `quest_${quest.questId}_run${runNumber}_${new Date().getTime()}`;
+    // Prompt for questalgo
+    let questPrompt = `You are executing Quest "${quest.questId}".\n\nQUEST DESCRIPTION:\n${quest.description}\n\n`;
+    if (quest.parentId) {
+        questPrompt += `Note: You are a SUBQUEST spawned by "${quest.parentId}". Your completion is a requirement for the main quest to proceed.\n\n`;
+    }
+    questPrompt += `You are the primary executor. You have direct access to tools. Solve this quest completely.\nWhen you are done, return a final message summarizing what you did.`;
+    let crashError = '';
     try {
-        // Execute through questalgo — not masteralgo
-        const results = runAlgo('questalgo', uid, questPrompt);
-        const output = results.join('\n');
-        const actionsMatch = output.match(/ACTIONS TAKEN:\s*([\s\S]*?)(?=LESSONS LEARNED:|$)/i);
-        const lessonsMatch = output.match(/LESSONS LEARNED:\s*([\s\S]*?)(?=REPORT TO CREATOR:|$)/i);
-        const reportMatch = output.match(/REPORT TO CREATOR:\s*([\s\S]*?)$/i);
-        const actions = actionsMatch ? actionsMatch[1].trim() : output.substring(0, 500);
-        const lessons = lessonsMatch ? lessonsMatch[1].trim() : '(No structured lessons returned)';
-        const report = reportMatch ? reportMatch[1].trim() : output.substring(0, 500);
-        logSheet.getRange(logRowIndex, 4).setValue(actions.substring(0, 5000));
-        logSheet.getRange(logRowIndex, 5).setValue(lessons.substring(0, 5000));
-        const docLink = stateDocUrl ? `\n📄 State doc: ${stateDocUrl}` : '';
-        // Escape asterisks and underscores in the report and ID to prevent Telegram Markdown parsing errors
-        // (if the LLM output contains a single underscore like 'log_issue', it breaks the parser)
-        const safeReport = report.replace(/_/g, '\\_').replace(/\*/g, '\\*');
-        const safeQuestId = quest.questId.replace(/_/g, '\\_').replace(/\*/g, '\\*');
-        const telegramReport = [
-            `📋 *Quest: ${safeQuestId}* (Run #${runNumber})`,
-            `Progress: ${quest.progress}%`,
-            ``,
-            safeReport,
-            docLink,
-            ``,
-            `_Reply naturally with your feedback and progress._`,
-        ].join('\n');
-        queueOutboxMessage_(quest.questId, telegramReport, 'quest');
+        runAlgo('questalgo', uid, questPrompt);
     }
     catch (err) {
-        logSheet.getRange(logRowIndex, 4).setValue(`[CRASHED] ${String(err).substring(0, 2000)}`);
-        logSheet.getRange(logRowIndex, 5).setValue(`[ERROR] Run crashed: ${String(err).substring(0, 2000)}`);
-        // Crash reports bypass the Outbox
-        sendReply(getQuestBotToken(), getAdminChatId(), [
-            `🚨 Quest "${quest.questId}" FAILED:\n${String(err)}`
-        ]);
+        crashError = String(err);
     }
+    // Step 2: LogAlgo -> read the AgentState history and build a report
+    const state = typeof readState === 'function' ? readState(uid) : null;
+    let agentTranscript = '';
+    if (crashError) {
+        agentTranscript = `[CRASHED] Fatal error: ${crashError}`;
+        const data = logSheet.getDataRange().getValues();
+        logSheet.getRange(data.length, 4).setValue(agentTranscript.substring(0, 5000));
+    }
+    else if (state && state.data && state.data.history) {
+        agentTranscript = JSON.stringify(state.data.history, null, 2);
+    }
+    const logPrompt = `Review this quest execution for Quest "${quest.questId}".\nDescription: ${quest.description}\n\nExecution Transcript (JSON):\n${agentTranscript}`;
+    let reportText = '';
+    try {
+        const logResults = runAlgo('logalgo', `${uid}_log`, logPrompt);
+        reportText = logResults.join('\n');
+    }
+    catch (e) {
+        reportText = `Failed to generate report: ${e}\n\nTranscript Snippet:\n${agentTranscript.substring(0, 1000)}`;
+    }
+    // Create execution report doc
+    let reportDocUrl = '';
+    if (typeof createQuestExecutionReport_ === 'function') {
+        reportDocUrl = createQuestExecutionReport_(quest.questId, runNumber, reportText);
+    }
+    // Step 3: UserInfoAlgo -> summarize and prep Telegram message
+    const userInfoPrompt = `Markdown Report:\n---\n${reportText}`;
+    let telegramMessage = '';
+    try {
+        const userInfoResults = runAlgo('userinfoalgo', `${uid}_userinfo`, userInfoPrompt);
+        const bulletPoints = userInfoResults.join('\n');
+        const safeQuestId = quest.questId.replace(/_/g, '\\_').replace(/\*/g, '\\*');
+        telegramMessage = [
+            `📋 *Quest: ${safeQuestId}* (Run #${runNumber})`,
+            ``,
+            bulletPoints,
+            ``,
+            `📄 [Full Report](${reportDocUrl})`,
+        ].join('\n');
+    }
+    catch (e) {
+        telegramMessage = `📋 *Quest: ${quest.questId}* (Run #${runNumber})\n\nReport generation succeeded, but summarization failed. Please check the document.\n\n📄 [Full Report](${reportDocUrl})`;
+    }
+    // Find the exact row to update
+    const finalData = logSheet.getDataRange().getValues();
+    let targetRow = finalData.length;
+    for (let i = finalData.length - 1; i > 0; i--) {
+        if (String(finalData[i][1]).trim() === quest.questId && Number(finalData[i][2]) === runNumber) {
+            targetRow = i + 1;
+            break;
+        }
+    }
+    logSheet.getRange(targetRow, 4).setValue(crashError ? agentTranscript.substring(0, 5000) : '[COMPLETED]');
+    logSheet.getRange(targetRow, 5).setValue(reportDocUrl);
+    SpreadsheetApp.flush();
+    queueOutboxMessage_(quest.questId, telegramMessage, 'quest');
 }
 // ─── Subquest Proposal (Called via SCRIPT Tool) ─────────────
 function suggestSubquest(parentId, suggestedId, weight, description) {
@@ -480,54 +400,45 @@ function getLatestDeliveredQuestId_() {
 function parseNLQuestUpdate(userText, updateId) {
     const questId = getLatestDeliveredQuestId_();
     if (!questId)
-        return '❌ No pending quest reports found in the Outbox.';
-    const questSheet = getQuestsSheet_();
-    const qData = questSheet.getDataRange().getValues();
-    let currentProgress = 0;
-    for (let i = 1; i < qData.length; i++) {
-        if (String(qData[i][0]).trim() === questId) {
-            currentProgress = Number(qData[i][2]) || 0;
-            break;
-        }
-    }
-    const contextMessage = [
-        `Quest ID: ${questId}`,
-        `Current Progress: ${currentProgress}%`,
-        ``,
-        `Creator's reply:`,
-        userText,
-    ].join('\n');
+        return { statusMsg: '❌ No pending quest reports.', triggerNext: false };
     const uid = `nl_quest_${updateId}_${new Date().getTime()}`;
+    const contextMessage = `Creator's reply:\n${userText}`;
     try {
         const results = runAlgo('quest_update_algo', uid, contextMessage);
         const rawText = results.join('\n');
         const jsonMatch = rawText.match(/\{[\s\S]*?\}/);
         const data = JSON.parse(jsonMatch ? jsonMatch[0] : rawText);
-        const prog = Number(data.progress) || currentProgress;
-        const fb = String(data.feedback) || userText;
-        return handleQuestUpdate(questId, prog, fb);
+        return handleQuestUpdate(questId, data.action || 'REPEAT', data.feedback || userText);
     }
     catch (e) {
-        return `❌ Failed to parse quest update: ${e}`;
+        return { statusMsg: `❌ Failed to parse quest update: ${e}`, triggerNext: false };
     }
 }
 function parseNLSubquestApproval(userText, updateId) {
     const props = PropertiesService.getScriptProperties();
     const rawData = props.getProperty('LATEST_SUBQUEST');
     if (!rawData)
-        return '❌ No pending subquest proposal found.';
+        return { statusMsg: '❌ No pending subquest proposal.', triggerNext: false };
     const pending = JSON.parse(rawData);
-    const contextMessage = [
-        `Pending Subquest Proposal:`,
-        `- Parent Quest: ${pending.parentId}`,
-        `- Suggested ID: ${pending.suggestedId}`,
-        `- Suggested Weight: ${pending.weight}`,
-        `- Description: ${pending.description}`,
-        ``,
-        `Creator's reply:`,
-        userText,
-    ].join('\n');
     const uid = `nl_subquest_${updateId}_${new Date().getTime()}`;
+    if (pending.suggested_quest_id) {
+        // This is a follow-up quest
+        try {
+            const results = runAlgo('subquest_approval_algo', uid, `Proposal: ${pending.description}\nCreator reply: ${userText}`);
+            const data = JSON.parse(results.join('\n').match(/\{[\s\S]*?\}/)[0]);
+            if (data.action === 'REJECT') {
+                props.deleteProperty('LATEST_SUBQUEST');
+                return { statusMsg: `❌ Follow-up Quest REJECTED.`, triggerNext: true };
+            }
+            const msg = createNewQuest_(pending.suggested_quest_id, data.description || pending.description, data.weight || pending.weight);
+            props.deleteProperty('LATEST_SUBQUEST');
+            return { statusMsg: msg, triggerNext: true };
+        }
+        catch (e) {
+            return { statusMsg: `❌ Error: ${e}`, triggerNext: false };
+        }
+    }
+    const contextMessage = `Pending Subquest:\nDesc: ${pending.description}\nCreator reply:\n${userText}`;
     try {
         const results = runAlgo('subquest_approval_algo', uid, contextMessage);
         const rawText = results.join('\n');
@@ -536,20 +447,85 @@ function parseNLSubquestApproval(userText, updateId) {
         let resultMsg;
         if (data.action === 'REJECT') {
             props.deleteProperty('LATEST_SUBQUEST');
-            resultMsg = `❌ Subquest "${pending.suggestedId}" was REJECTED.`;
+            resultMsg = `❌ Subquest "${pending.suggestedId}" REJECTED.`;
         }
         else {
-            const result = handleSubquestApproval(pending.parentId, pending.suggestedId, Number(data.weight) || pending.weight, data.description || pending.description);
+            resultMsg = handleSubquestApproval(pending.parentId, pending.suggestedId, Number(data.weight) || pending.weight, data.description || pending.description);
             props.deleteProperty('LATEST_SUBQUEST');
-            resultMsg = result;
         }
-        // Deliver the next queued message (could be quest report or another subquest proposal)
-        const hasNext = deliverNextOutboxMessage_();
-        const queueNote = hasNext ? '\n📬 Next message delivered.' : '';
-        return resultMsg + queueNote;
+        return { statusMsg: resultMsg, triggerNext: true };
     }
     catch (e) {
-        return `❌ Failed to parse subquest decision: ${e}`;
+        return { statusMsg: `❌ Failed to parse subquest decision: ${e}`, triggerNext: false };
+    }
+}
+function parseNLAgentApproval(userText, updateId) {
+    const agentId = getLatestDeliveredQuestId_();
+    if (!agentId)
+        return { statusMsg: '❌ No pending agent lessons.', triggerNext: false };
+    const sheet = getOutboxSheet_();
+    const data = sheet.getDataRange().getValues();
+    let pendingLesson = '';
+    for (let i = data.length - 1; i > 0; i--) {
+        if (String(data[i][3]).trim() === 'DELIVERED' && String(data[i][1]).trim() === agentId) {
+            const meta = String(data[i][5]);
+            if (meta) {
+                try {
+                    const parsed = JSON.parse(meta);
+                    pendingLesson = parsed.lesson || '';
+                }
+                catch (e) { }
+            }
+            break;
+        }
+    }
+    if (!pendingLesson)
+        return { statusMsg: '❌ Could not retrieve pending lesson data.', triggerNext: false };
+    const uid = `nl_agent_${updateId}_${new Date().getTime()}`;
+    const contextMessage = `Lesson Tip for ${agentId}:\n${pendingLesson}\n\nCreator reply:\n${userText}`;
+    try {
+        const results = runAlgo('agent_approval_algo', uid, contextMessage);
+        const rawText = results.join('\n');
+        const jsonMatch = rawText.match(/\{[\s\S]*?\}/);
+        const parsed = JSON.parse(jsonMatch ? jsonMatch[0] : rawText);
+        if (parsed.action === 'REJECT') {
+            return { statusMsg: `❌ Tip for ${agentId} REJECTED.`, triggerNext: true };
+        }
+        else {
+            const finalLesson = parsed.updated_lesson || pendingLesson;
+            if (typeof ensureExperienceDoc_ === 'function') {
+                const docUrl = ensureExperienceDoc_(agentId);
+                if (docUrl) {
+                    const docId = typeof extractDocId_ === 'function' ? extractDocId_(docUrl) : null;
+                    if (docId) {
+                        const doc = DocumentApp.openById(docId);
+                        const body = doc.getBody();
+                        let countNum = 1;
+                        if (typeof getSamSheetId === 'function') {
+                            const manifestSheet = SpreadsheetApp.openById(getSamSheetId()).getSheetByName('AgentManifest');
+                            if (manifestSheet) {
+                                const mData = manifestSheet.getDataRange().getValues();
+                                for (let j = 1; j < mData.length; j++) {
+                                    if (String(mData[j][0]).trim() === agentId) {
+                                        countNum = (Number(mData[j][6]) || 0) + 1; // Col G
+                                        manifestSheet.getRange(j + 1, 7).setValue(countNum);
+                                        break;
+                                    }
+                                }
+                            }
+                        }
+                        body.appendParagraph(`#${countNum}`).setHeading(DocumentApp.ParagraphHeading.HEADING1);
+                        body.appendParagraph(finalLesson);
+                        doc.saveAndClose();
+                        return { statusMsg: `✅ Tip #${countNum} saved to ${agentId}'s experience!`, triggerNext: true };
+                    }
+                }
+            }
+            return { statusMsg: `✅ Tip parsed but could not write to doc.`, triggerNext: true };
+        }
+    }
+    catch (e) {
+        return { statusMsg: `❌ Failed to parse tip decision: ${e}`, triggerNext: false };
     }
 }
 // ─── NewQuest Bot (Creator-initiated quest creation) ────────
@@ -585,72 +561,134 @@ function parseNLNewQuest(userText, updateId) {
 function createNewQuest_(questId, description, weight) {
     const sheet = getQuestsSheet_();
     const data = sheet.getDataRange().getValues();
-    // Check for duplicate
     for (let i = 1; i < data.length; i++) {
         if (String(data[i][0]).trim() === questId) {
             return `❌ Quest "${questId}" already exists.`;
         }
     }
-    // Auto-create state doc
-    const stateDocUrl = createQuestStateDoc_(questId, description);
     sheet.appendRow([
         questId,
         description,
-        0, // progress
-        'ACTIVE', // status
-        weight, // weight
-        1, // current_score
-        '', // last_feedback
-        '', // parent_id (main quest, no parent)
-        stateDocUrl // state_doc_url
+        'ACTIVE', // status (Col C)
+        weight, // weight (Col D)
+        1, // current_score (Col E)
+        '', // parent_id (main quest, no parent) (Col F)
     ]);
     SpreadsheetApp.flush();
     return [
         `✅ Quest Created!`,
         `ID: \`${questId}\``,
         `Weight: ${weight}`,
-        `Description: ${description}`,
-        `📄 State doc: ${stateDocUrl}`,
+        `Description: ${description}`
     ].join('\n');
 }
 // ─── Telegram Webhook Handlers ──────────────────────────────
-function handleQuestUpdate(questId, newProgress, feedback) {
+function handleQuestUpdate(questId, action, feedback) {
     markLatestDeliveredAsReplied_();
+    let statusMsg = '';
     const logSheet = getQuestLogsSheet_();
     const logData = logSheet.getDataRange().getValues();
     let latestLogRow = -1;
     let latestRunNum = 0;
+    let latestDocUrl = '';
     for (let i = 1; i < logData.length; i++) {
         if (String(logData[i][1]).trim() === questId) {
             const runNum = Number(logData[i][2]) || 0;
             if (runNum > latestRunNum) {
                 latestRunNum = runNum;
                 latestLogRow = i + 1;
+                latestDocUrl = String(logData[i][4]).trim();
             }
         }
     }
     if (latestLogRow > 0) {
-        logSheet.getRange(latestLogRow, 6).setValue(feedback);
-        logSheet.getRange(latestLogRow, 7).setValue(newProgress);
+        logSheet.getRange(latestLogRow, 6).setValue(feedback); // Col F
     }
     const questSheet = getQuestsSheet_();
     const questData = questSheet.getDataRange().getValues();
+    let questDesc = '';
+    let parentId = '';
     for (let i = 1; i < questData.length; i++) {
         if (String(questData[i][0]).trim() === questId) {
             const row = i + 1;
-            questSheet.getRange(row, 3).setValue(newProgress);
-            questSheet.getRange(row, 7).setValue(feedback);
-            if (newProgress >= 100) {
-                questSheet.getRange(row, 4).setValue('FINISHED');
+            questDesc = String(questData[i][1]).trim();
+            parentId = String(questData[i][5]).trim(); // Col F
+            if (action === 'ACCEPT') {
+                questSheet.getRange(row, 3).setValue('FINISHED'); // Col C
+                statusMsg = `🏆 Quest "${questId}" FINISHED!`;
+                // Unpause parent
+                if (parentId) {
+                    for (let j = 1; j < questData.length; j++) {
+                        if (String(questData[j][0]).trim() === parentId) {
+                            questSheet.getRange(j + 1, 3).setValue('ACTIVE');
+                            break;
+                        }
+                    }
+                    statusMsg += `\n🔄 Parent quest "${parentId}" resumed to ACTIVE.`;
+                }
+                try {
+                    const fuResult = runAlgo('follow_up_algo', `fu_${new Date().getTime()}`, `Quest: ${questId}\nDescription: ${questDesc}`);
+                    const fuJson = JSON.parse(fuResult.join('').match(/\{[\s\S]*?\}/)[0]);
+                    const msg = [
+                        `🌟 *Follow-Up Quest Suggested*`,
+                        `ID: \`${fuJson.suggested_quest_id}\``,
+                        `Weight: ${fuJson.weight}`,
+                        `Desc: ${fuJson.description}`,
+                        `\n_Reply naturally to create or reject._`
+                    ].join('\n');
+                    queueOutboxMessage_(fuJson.suggested_quest_id, msg, 'subquest', JSON.stringify(fuJson));
+                }
+                catch (e) { }
+            }
+            else if (action === 'REPEAT') {
+                questSheet.getRange(row, 5).setValue(1); // Set current_score to 1
+                statusMsg = `✅ Quest "${questId}" returned to ACTIVE. Score reset.`;
+            }
+            else if (action === 'SUCKS') {
+                statusMsg = `❌ Quest "${questId}" flagged as unsatisfactory. Generating solutions...`;
+                let reportContent = '';
+                if (latestDocUrl && typeof readDocContent === 'function') {
+                    reportContent = readDocContent(latestDocUrl);
+                }
+                try {
+                    const sqPrompt = `Quest: ${questId}\nDescription: ${questDesc}\n\nExecution Report:\n${reportContent.substring(0, 3000)}`;
+                    const sqResult = runAlgo('subquest_proposal_algo', `sq_${new Date().getTime()}`, sqPrompt);
+                    const sqJson = JSON.parse(sqResult.join('').match(/\{[\s\S]*?\}/)[0]);
+                    const msg = [
+                        `🧩 *Subquest Proposed* (Requirement for ${questId})`,
+                        `ID: \`${sqJson.suggested_id}\``,
+                        `Weight: ${sqJson.weight || 50}`,
+                        `Desc: ${sqJson.description}`,
+                        `\n_Reply naturally to approve or reject._`
+                    ].join('\n');
+                    queueOutboxMessage_(sqJson.suggested_id, msg, 'subquest', JSON.stringify({
+                        parentId: questId, suggestedId: sqJson.suggested_id, weight: sqJson.weight || 50, description: sqJson.description
+                    }));
+                }
+                catch (e) { }
+                try {
+                    const agentPrompt = `Quest: ${questId}\nExec Report:\n${reportContent.substring(0, 3000)}\nUser Feedback: ${feedback}`;
+                    const agentResult = runAlgo('agentalgo', `agent_${new Date().getTime()}`, agentPrompt);
+                    const agentJson = JSON.parse(agentResult.join('').match(/\{[\s\S]*?\}/)[0]);
+                    if (agentJson.lessons && agentJson.lessons.length > 0) {
+                        for (const lesson of agentJson.lessons) {
+                            const msg = [
+                                `💡 *Agent Tip Proposed*`,
+                                `Agent: \`${lesson.agent_id}\``,
+                                `Tip: ${lesson.lesson}`,
+                                `\n_Reply to accept, reject, or modify._`
+                            ].join('\n');
+                            queueOutboxMessage_(lesson.agent_id, msg, 'agent', JSON.stringify(lesson));
+                        }
+                    }
+                }
+                catch (e) { }
             }
             break;
         }
     }
     SpreadsheetApp.flush();
-    const hasNext = deliverNextOutboxMessage_();
-    const statusMsg = newProgress >= 100 ? '🏆 Quest FINISHED!' : `✅ Updated to ${newProgress}%.`;
-    const queueNote = hasNext ? '\n📬 Next report delivered.' : '\n📭 No more queued reports.';
-    return `${statusMsg}\nQuest: ${questId}\nFeedback: "${feedback}"${queueNote}`;
+    return { statusMsg, triggerNext: true };
 }
 function handleSubquestApproval(parentId, subId, weight, newDesc) {
     markLatestDeliveredAsReplied_();
@@ -662,21 +700,69 @@ function handleSubquestApproval(parentId, subId, weight, newDesc) {
         }
     }
     const descToUse = newDesc || '(No description provided during approval)';
-    // Auto-create state doc for the new subquest
-    const stateDocUrl = createQuestStateDoc_(subId, descToUse);
     sheet.appendRow([
         subId,
         descToUse,
-        0, // progress
         'ACTIVE', // status
         weight, // weight
         1, // current_score
-        '', // last_feedback
         parentId, // parent_id
-        stateDocUrl // state_doc_url
     ]);
+    // Pause parent
+    for (let i = 1; i < data.length; i++) {
+        if (String(data[i][0]).trim() === parentId) {
+            sheet.getRange(i + 1, 3).setValue('PAUSED');
+        }
+    }
     SpreadsheetApp.flush();
-    return `✅ Subquest Created!\nID: ${subId}\nParent: ${parentId}\nWeight: ${weight}\n📄 State doc: ${stateDocUrl}`;
+    return `✅ Subquest Created!\nID: ${subId}\nParent: ${parentId}\nWeight: ${weight}\n(Parent "${parentId}" paused until completed)`;
+}
+// ─── Active Quests TaskBot Listing ──────────────────────────
+function sendActiveQuestsList_() {
+    const sheet = getQuestsSheet_();
+    const data = sheet.getDataRange().getValues();
+    // Extract active quests
+    const activeQuests = [];
+    for (let i = 1; i < data.length; i++) {
+        if (String(data[i][2]).trim().toUpperCase() === 'ACTIVE') {
+            activeQuests.push({
+                id: String(data[i][0]).trim(),
+                desc: String(data[i][1]).trim(),
+                weight: Number(data[i][3]) || 0,
+                score: Number(data[i][4]) || 0
+            });
+        }
+    }
+    if (activeQuests.length === 0) {
+        if (typeof getTaskBotToken === 'function' && typeof getAdminChatId === 'function') {
+            sendReply(getTaskBotToken(), getAdminChatId(), ["*No active quests currently.*"]);
+        }
+        return;
+    }
+    // Sort by current_score descending
+    activeQuests.sort((a, b) => b.score - a.score);
+    // Top 12
+    const topQuests = activeQuests.slice(0, 12);
+    const lines = ["📋 *Top Active Quests*"];
+    lines.push("");
+    for (let i = 0; i < topQuests.length; i++) {
+        const q = topQuests[i];
+        const safeId = q.id.replace(/_/g, '\\_').replace(/\*/g, '\\*');
+        lines.push(`${i + 1}\\. *${safeId}*`);
+        lines.push(`_${q.desc}_`);
+        lines.push("");
+    }
+    if (activeQuests.length > 12) {
+        lines.push(`... and ${activeQuests.length - 12} more.`);
+    }
+    if (typeof getTaskBotToken === 'function' && typeof getAdminChatId === 'function') {
+        try {
+            sendReply(getTaskBotToken(), getAdminChatId(), [lines.join('\n')]);
+        }
+        catch (e) {
+            Logger.log(`[QUEST_ENGINE] Failed to send active quests: ${e}`);
+        }
+    }
 }
 // ─── Nightly Telemetry Updater ──────────────────────────────
 function updateTelemetry() {
@@ -833,37 +919,25 @@ function testQuestEngine() {
     const quest = selectNextQuest_();
     if (quest) {
         Logger.log(`✓ Selected quest: ${quest.questId} (weight=${quest.weight}, score=${quest.currentScore})`);
-        // 3. State doc
-        const docUrl = ensureQuestStateDoc_(quest.questId, quest.description);
-        Logger.log(`✓ State doc: ${docUrl}`);
-        // 4. History
-        const history = loadQuestHistory_(quest.questId);
-        Logger.log(`✓ History loaded: ${history.length} chars`);
-        // 5. Quest refs
-        const refs = getQuestReferencesPayload(quest.questId);
-        Logger.log(`✓ Quest refs: ${refs.textRefs.length} chars text, ${refs.imageRefs.length} images`);
+        // 3. Quest refs
+        if (typeof getQuestReferencesPayload === 'function') {
+            try {
+                const refs = getQuestReferencesPayload(quest.questId);
+                Logger.log(`✓ Quest refs payload available`);
+            }
+            catch (e) { }
+        }
     }
     else {
         Logger.log('⚠ No quest selected (all awaiting feedback or none active)');
     }
-    // 6. Agent config
+    // 4. Agent config
     try {
         const cfg = getAlgoConfig('questalgo');
         Logger.log(`✓ questalgo config loaded: model=${cfg.model}`);
     }
     catch (e) {
         Logger.log(`✗ questalgo NOT FOUND in AgentManifest! Add it before running quests. Error: ${e}`);
-    }
-    // 7. Issue notifications
-    const ss = SpreadsheetApp.openById(getSamSheetId());
-    const issueSheet = ss.getSheetByName('Issues');
-    if (issueSheet) {
-        const iData = issueSheet.getDataRange().getValues();
-        const newCount = iData.filter((r, i) => i > 0 && String(r[5]).trim() === 'NEW').length;
-        Logger.log(`✓ Issues sheet: ${newCount} NEW issue(s)`);
-    }
-    else {
-        Logger.log('⚠ Issues sheet not found (will be auto-created on first log_issue call)');
     }
     Logger.log('=== SMOKE TEST COMPLETE ===');
 }

@@ -29,45 +29,27 @@ function createDocInFolder_(title: string, customFolderId?: string): string {
     return doc.getUrl();
 }
 
-// ─── Quest State Docs ───────────────────────────────────────
+// ─── Quest Execution Reports ──────────────────────────────────
 
-function createQuestStateDoc_(questId: string, description: string): string {
-    const url = createDocInFolder_(`Quest State: ${questId}`);
+function createQuestExecutionReport_(questId: string, runNumber: number, content: string): string {
+    const url = createDocInFolder_(`Run #${runNumber} Report - ${questId}`);
     const docId = extractDocId_(url);
 
     if (docId) {
         const doc = DocumentApp.openById(docId);
         const body = doc.getBody();
-        body.appendParagraph(`=== Quest: ${questId} ===`).setHeading(DocumentApp.ParagraphHeading.HEADING1);
-        body.appendParagraph(`Description: ${description}`);
-        body.appendParagraph('---');
+        body.appendParagraph(`=== Quest: ${questId} (Run #${runNumber}) ===`).setHeading(DocumentApp.ParagraphHeading.HEADING1);
+        
+        // Write the generated markdown report directly into the doc
+        const lines = content.split('\n');
+        for (const line of lines) {
+            body.appendParagraph(line);
+        }
+        
         doc.saveAndClose();
     }
 
     return url;
-}
-
-/**
- * Auto-creates a quest state doc if the quest doesn't have one yet.
- * Returns the doc URL (existing or newly created).
- */
-function ensureQuestStateDoc_(questId: string, description: string): string {
-    const sheet = getQuestsSheet_();
-    const data = sheet.getDataRange().getValues();
-
-    for (let i = 1; i < data.length; i++) {
-        if (String(data[i][0]).trim() === questId) {
-            const existingUrl = String(data[i][8] || '').trim(); // Col I = index 8
-            if (existingUrl) return existingUrl;
-
-            const url = createQuestStateDoc_(questId, description);
-            sheet.getRange(i + 1, 9).setValue(url); // Col I = column 9
-            SpreadsheetApp.flush();
-            Logger.log(`[DOC_MANAGER] Auto-created state doc for quest "${questId}"`);
-            return url;
-        }
-    }
-    return '';
 }
 
 // ─── Agent Experience Docs ──────────────────────────────────

@@ -5,7 +5,7 @@
  *   1. triggerQuests              → Every 1 hour
  *   2. triggerTelemetry           → Once per day (3:00 AM)
  *   3. runDailyBriefing           → Once per day (morning)
- *   4. triggerIssueNotifications  → Every 6 hours (or your preferred interval)
+ *   4. triggerTaskBotUpdate       → Every 6 or 12 hours
  *   5. triggerExperienceReview_   → Every 12 hours (or your preferred interval)
  *
  * To create triggers:
@@ -49,15 +49,17 @@ function triggerTelemetry() {
     }
 }
 /**
- * Issue notification trigger — sends NEW agent issues via BugBot.
- * Set to run every 6 hours (or 4x/day at 9:00, 12:00, 15:00, 18:00).
+ * Task list notification trigger — sends top 12 active quests via TaskBot.
+ * Set to run every 6 or 12 hours.
  */
-function triggerIssueNotifications() {
+function triggerTaskBotUpdate() {
     try {
-        sendNewIssueNotifications_();
+        if (typeof sendActiveQuestsList_ === 'function') {
+            sendActiveQuestsList_();
+        }
     }
     catch (err) {
-        Logger.log(`[AUTOMATIONS] Issue notification failed: ${err}`);
+        Logger.log(`[AUTOMATIONS] TaskBot update failed: ${err}`);
     }
 }
 /**

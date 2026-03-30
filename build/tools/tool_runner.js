@@ -15,14 +15,6 @@ function executeScriptTool(toolName, args) {
             return executeSearchContentGems(args);
         case 'searchinteractivegems':
             return executeSearchInteractiveGems(args);
-        case 'logissue':
-            return executeIssueLogger(args);
-        case 'suggestsubquest':
-            return executeSuggestSubquest(args);
-        case 'appendquestdoc':
-            return executeAppendQuestDoc(args);
-        case 'appendexperience':
-            return executeAppendExperience(args);
         default:
             return { error: `Script tool execution failed: unmapped tool '${toolName}'` };
     }

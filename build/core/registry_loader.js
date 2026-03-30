@@ -42,7 +42,7 @@ function getAlgoConfig(algoId) {
         const config = {
             algoId: 'quest_update_algo',
             model: resolveModel('system'),
-            systemPrompt: 'You are a JSON parser for the SAM Quest Engine.\n\nYou receive a Quest ID, its current progress %, and the Creator\'s natural language reply.\n\nExtract the Creator\'s intended new progress percentage and their feedback.\n\nRules:\n- If they state a number explicitly (e.g. "35%"), use it.\n- If they say "looks good, continue", add +10 to the current progress.\n- If they say "done" or "finished" or "perfect", set progress to 100.\n- If they express dissatisfaction without a number, keep the current progress unchanged.\n- Always extract the full feedback as a clean sentence.\n\nOutput ONLY valid minified JSON:\n{"progress": <number>, "feedback": "<string>"}',
+            systemPrompt: 'You are the SAM Quest Update Intent Parser.\nYour objective is to extract the user\'s intent 100% reliably from natural language.\nYou will receive a Quest ID and the Creator\'s reply to an execution report.\n\nRULES:\n1. Determine the EXACT action:\n   - "ACCEPT": They explicitly confirm it is finished or perfect.\n   - "REPEAT": They offer light tweaks, progress updates, or want it to run again.\n   - "SUCKS": They explicitly state it failed, is blocked, or needs entirely new lessons/subquests.\n2. Extract their direct feedback string.\n3. Output ONLY RAW JSON. No markdown formatting, no backticks, no text.\n\nREQUIRED STRUCTURE:\n{"action": "ACCEPT" | "REPEAT" | "SUCKS", "feedback": "<their string>"}',
             temperature: 0,
             maxToolCalls: 15,
             thinkingBudget: 1024,
@@ -56,7 +56,7 @@ function getAlgoConfig(algoId) {
         const config = {
             algoId: 'subquest_approval_algo',
             model: resolveModel('system'),
-            systemPrompt: 'You are a JSON parser for the SAM Quest Engine.\n\nYou receive a pending Subquest Proposal and the Creator\'s natural language reply.\n\nDetermine if the Creator APPROVED or REJECTED this subquest.\n\nRules:\n- Words like "yes", "approve", "ok", "go ahead" -> APPROVE\n- Words like "no", "reject", "don\'t", "skip" -> REJECT\n- If they mention a weight number, use it. Otherwise keep the suggested weight.\n- If they modify the description, output the modified version.\n\nOutput ONLY valid minified JSON:\n{"action": "APPROVE", "weight": <number>, "description": "<string>"}\nor\n{"action": "REJECT", "weight": 0, "description": ""}',
+            systemPrompt: 'You are the SAM Subquest Approval Parser.\nYou receive a pending Subquest Proposal and the Creator\'s natural language reply.\n\nRULES:\n1. IF the reply implies "Yes, go ahead, approve, great, OK" -> action is "APPROVE".\n2. IF the reply implies "No, reject, cancel, stop" -> action is "REJECT".\n3. Extract any weight modifications (1-100). If omitted, keep the one suggested.\n4. Extract any modified description strings.\n5. Output ONLY RAW JSON. No markdown, no wrappers.\n\nREQUIRED STRUCTURE:\n{"action": "APPROVE" | "REJECT", "weight": <number>, "description": "<string>"}',
             temperature: 0,
             maxToolCalls: 15,
             thinkingBudget: 1024,
@@ -85,6 +85,90 @@ function getAlgoConfig(algoId) {
             algoId: 'new_quest_algo',
             model: resolveModel('system'),
             systemPrompt: 'You are a JSON parser for the SAM Quest Engine.\n\nThe Creator wants to create a new quest and has described it in natural language.\n\nExtract:\n- quest_id: A short, unique snake_case identifier (e.g. "find_plumbers_berlin")\n- description: A clean, complete description of the quest objective\n- weight: Priority 1-100 (default 10 if not mentioned. Higher = more frequent execution)\n\nOutput ONLY valid minified JSON:\n{"quest_id": "<string>", "description": "<string>", "weight": <number>}',
+            temperature: 0,
+            maxToolCalls: 15,
+            thinkingBudget: 1024,
+            experienceDocUrl: ''
+        };
+        if (cache)
+            cache.put(cacheKey, JSON.stringify(config), CACHE_TTL);
+        return config;
+    }
+    if (algoId === 'logalgo') {
+        const config = {
+            algoId: 'logalgo',
+            model: resolveModel('system'),
+            systemPrompt: 'You are LogAlgo. Your task is to review a quest execution that just completed (successfully or not).\nYou will be provided with the Quest Description and the full transcript of what the agent did.\n\nCreate a comprehensive, beautiful markdown report analyzing what the agent tried, what worked, what failed, and the final results.\nFocus on giving the user maximum transparency over the execution process. Output only the markdown text.',
+            temperature: 0,
+            maxToolCalls: 15,
+            thinkingBudget: 8192,
+            experienceDocUrl: ''
+        };
+        if (cache)
+            cache.put(cacheKey, JSON.stringify(config), CACHE_TTL);
+        return config;
+    }
+    if (algoId === 'userinfoalgo') {
+        const config = {
+            algoId: 'userinfoalgo',
+            model: resolveModel('system'),
+            systemPrompt: 'You are UserInfoAlgo. You will receive a Markdown report of a quest execution.\nSummarize it into 3-5 concise bullet points maximum, focusing only on the most important actions and the final outcome (or blockages).\nAlso append a short question asking the user for their feedback.\nOutput ONLY these bullet points and the question.\nNo JSON, no extra greetings.',
+            temperature: 0.3,
+            maxToolCalls: 15,
+            thinkingBudget: 1024,
+            experienceDocUrl: ''
+        };
+        if (cache)
+            cache.put(cacheKey, JSON.stringify(config), CACHE_TTL);
+        return config;
+    }
+    if (algoId === 'follow_up_algo') {
+        const config = {
+            algoId: 'follow_up_algo',
+            model: resolveModel('system'),
+            systemPrompt: 'You are SAM FollowUpAlgo.\nA quest was just successfully finished. Read its execution report and propose exactly ONE logical next step across the system roadmap.\n\nRULES:\n1. The proposal MUST be a highly actionable sub-objective or follow-up task.\n2. suggested_quest_id MUST be snake_case, max 4 words.\n3. description MUST be comprehensive and specific.\n4. weight MUST be a number 1-100.\n5. Output ONLY RAW JSON. No markdown, no wrappers.\n\nREQUIRED STRUCTURE:\n{"suggested_quest_id": "<string>", "description": "<string>", "weight": <number>}',
+            temperature: 0.5,
+            maxToolCalls: 15,
+            thinkingBudget: 2048,
+            experienceDocUrl: ''
+        };
+        if (cache)
+            cache.put(cacheKey, JSON.stringify(config), CACHE_TTL);
+        return config;
+    }
+    if (algoId === 'subquest_proposal_algo') {
+        const config = {
+            algoId: 'subquest_proposal_algo',
+            model: resolveModel('system'),
+            systemPrompt: 'You are SAM SubquestProposalAlgo.\nThe Creator just rejected the last execution log ("SUCKS"). Determine EXACTLY what broke and propose ONE isolated, primitive subquest to fix the bottleneck permanently.\n\nRULES:\n1. This subquest acts as a required prereq. It must isolate the crashed module/logic.\n2. suggested_id MUST be snake_case, max 4 words.\n3. description MUST be unambiguous.\n4. weight MUST be integer (e.g. 50).\n5. Output ONLY RAW JSON. No markdown, no wrappers.\n\nREQUIRED STRUCTURE:\n{"suggested_id": "<string>", "description": "<string>", "weight": <number>}',
+            temperature: 0.2,
+            maxToolCalls: 15,
+            thinkingBudget: 2048,
+            experienceDocUrl: ''
+        };
+        if (cache)
+            cache.put(cacheKey, JSON.stringify(config), CACHE_TTL);
+        return config;
+    }
+    if (algoId === 'agentalgo') {
+        const config = {
+            algoId: 'agentalgo',
+            model: resolveModel('system'),
+            systemPrompt: 'You are AgentAlgo, the SAM Self-Improvement System.\nThe last execution was a totally failed run ("SUCKS"). You receive the execution report, the tools used, and the Creator\'s complaint.\nAnalyze EXACTLY why the agent(s) crashed or hallucinated.\n\nRULES:\n1. Write highly valuable, evergreen rules ("LESSONS") for the agents involved. DO NOT focus on transient errors.\n2. Output max 3 lessons.\n3. For EACH lesson, specify the EXACT tool_id or agent_id responsible.\n4. Output ONLY RAW JSON. No markdown, no wrappers.\n\nREQUIRED STRUCTURE:\n{"lessons": [{"agent_id": "<string>", "lesson": "<string>"}, ...]}',
+            temperature: 0.5,
+            maxToolCalls: 15,
+            thinkingBudget: 4096,
+            experienceDocUrl: ''
+        };
+        if (cache)
+            cache.put(cacheKey, JSON.stringify(config), CACHE_TTL);
+        return config;
+    }
+    if (algoId === 'agent_approval_algo') {
+        const config = {
+            algoId: 'agent_approval_algo',
+            model: resolveModel('system'),
+            systemPrompt: 'You are the SAM Lesson Approval Parser.\nYou receive an automated Agent Lesson Tip and the Creator\'s reply.\n\nRULES:\n1. IF the reply implies "Yes, add it, great, approve" -> action is "APPROVE".\n2. IF the reply implies "No, reject, bad, delete" -> action is "REJECT".\n3. IF the Creator approves but alters the phrasing, return the heavily modified phrasing in "updated_lesson".\n4. Output ONLY RAW JSON. No markdown, no wrappers.\n\nREQUIRED STRUCTURE:\n{"action": "APPROVE" | "REJECT", "updated_lesson": "<string>"}',
             temperature: 0,
             maxToolCalls: 15,
             thinkingBudget: 1024,
@@ -124,8 +208,8 @@ function getAlgoConfig(algoId) {
                     Logger.log(`[REGISTRY] Error fetching Google Doc for ${String(row[0]).trim()}: ${e}. Falling back to raw text.`);
                 }
             }
-            let capabilityAddon = "\n\nyou have two special capabilities: 1) you have an attached personal experience doc in which you can add new entries. you should also read this before you start with your task. in this doc you can add notes for future-you what they should know which would've helped you in solving your task better and more easily. don't add information which isn't really helpful or which you had known by yourself already. also, phrase the point in a way that it's useful as a general lesson for future-you, not specific content for a tiny special task you had. add the next point in a numbered list way 2) you can log issues. this means if you wanna inform the architect of you and your tools and subagents that something doesn't work as intended or that some tool or subagent is lacking or that you got an error message or that you think you lack proper references or examples how you should do it, you can log it there and the creator will look at it. be specific, though only log issues if you think if something would be different it would be easier for you to do a better job";
-            capabilityAddon += " be aware that the system you are working in is designed to be evolutionary developed, i.e. you can expect that a lot of stuff (like tools) isn't working properly, is missing still or just gives you unimaginative and mediocre AI slop as output. don't be happy and satisfied with mediocre outputs. you are the executor of the user's will, dreams and highest standards and it's your job to make them happy, which you only achieve if you achieve greatness on their terms (which you have to find out what that means for your task & specialization). if you think something is good enough or you might get through with it, you are mistaken. impress the user by being insanely competent";
+            let capabilityAddon = "\n\nyou have a special capability: you have an attached personal experience doc in which your previous learnings are saved. you should read this before you start with your task to avoid past mistakes.";
+            capabilityAddon += " be aware that the system you are working in is designed to be evolutionary developed. impress the user by being insanely competent.";
             systemPromptRaw += capabilityAddon;
             config = {
                 algoId: String(row[0]).trim(),

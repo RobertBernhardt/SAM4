@@ -54,17 +54,19 @@ function doPost(e) {
         const text = update.message.text;
         const userName = update.message.from?.first_name || 'User';
         // --- 5a. Webhook Commands Interception ---
-        const updateMatch = text.match(/^\/update\s+(\S+)\s+(\d+)\s+([\s\S]+)/i);
+        const updateMatch = text.match(/^\/update\s+(\S+)\s+(ACCEPT|REPEAT|SUCKS)\s+([\s\S]+)/i);
         const subquestMatch = text.match(/^\/approve_sub\s+(\S+)\s+(\S+)\s+(\d+)(?:\s+([\s\S]+))?/i);
         if (updateMatch) {
             const questId = updateMatch[1];
-            const newProgress = parseInt(updateMatch[2], 10);
+            const action = updateMatch[2].toUpperCase();
             const feedback = updateMatch[3].trim();
-            telemetryLog_(updateId, 'QUEST_UPDATE', `Quest ${questId} → ${newProgress}%`);
+            telemetryLog_(updateId, 'QUEST_UPDATE', `Quest ${questId} → ${action}`);
             try {
-                const result = handleQuestUpdate(questId, newProgress, feedback);
+                const result = handleQuestUpdate(questId, action, feedback);
                 const replyToken = e.parameter.bot === 'master' ? getMasterBotToken() : getQuestBotToken();
-                sendReply(replyToken, chatId, [result]);
+                sendReply(replyToken, chatId, [result.statusMsg]);
+                if (result.triggerNext)
+                    deliverNextOutboxMessage_();
             }
             catch (err) {
                 sendReply(getQuestBotToken(), chatId, [`❌ Failed to update quest: ${String(err)}`]);
@@ -86,14 +88,16 @@ function doPost(e) {
             }
             return ContentService.createTextOutput("OK");
         }
-        // --- 5b. Natural Language (NL) Parsers for Quest/Subquest Bots ---
+        // --- 5b. Natural Language (NL) Parsers for Quest/Subquest/Agent Bots ---
         const urlToken = e.parameter.token;
         const urlBot = e.parameter.bot;
         if ((urlToken === getQuestBotToken() || urlBot === 'quest') && !text.startsWith('/')) {
             telemetryLog_(updateId, 'NL_QUEST', `Routing to NL parser`);
             try {
                 const result = parseNLQuestUpdate(text, String(updateId));
-                sendReply(getQuestBotToken(), chatId, [result]);
+                sendReply(getQuestBotToken(), chatId, [result.statusMsg]);
+                if (result.triggerNext)
+                    deliverNextOutboxMessage_();
             }
             catch (err) {
                 sendReply(getQuestBotToken(), chatId, [`❌ NLP Error: ${String(err)}`]);
@@ -104,10 +108,25 @@ function doPost(e) {
             telemetryLog_(updateId, 'NL_SUBQUEST', `Routing to NL parser`);
             try {
                 const result = parseNLSubquestApproval(text, String(updateId));
-                sendReply(getSubquestBotToken(), chatId, [result]);
+                sendReply(getSubquestBotToken(), chatId, [result.statusMsg]);
+                if (result.triggerNext)
+                    deliverNextOutboxMessage_();
             }
             catch (err) {
                 sendReply(getSubquestBotToken(), chatId, [`❌ NLP Error: ${String(err)}`]);
+            }
+            return ContentService.createTextOutput("OK");
+        }
+        if ((urlToken === getAgentBotToken() || urlBot === 'agent') && !text.startsWith('/')) {
+            telemetryLog_(updateId, 'NL_AGENT', `Routing to NL parser`);
+            try {
+                const result = parseNLAgentApproval(text, String(updateId));
+                sendReply(getAgentBotToken(), chatId, [result.statusMsg]);
+                if (result.triggerNext)
+                    deliverNextOutboxMessage_();
+            }
+            catch (err) {
+                sendReply(getAgentBotToken(), chatId, [`❌ NLP Error: ${String(err)}`]);
             }
             return ContentService.createTextOutput("OK");
         }
@@ -133,9 +152,9 @@ function doPost(e) {
             botToken = getGemBotToken();
             algoId = 'gemalgo';
         }
-        else if (urlToken === getBugBotToken() || urlBot === 'bug') {
-            botToken = getBugBotToken();
-            algoId = 'bugalgo';
+        else if (urlToken === getAgentBotToken() || urlBot === 'agent') {
+            botToken = getAgentBotToken();
+            algoId = 'agentalgo';
         }
         else if (urlToken === getFailBotToken() || urlBot === 'fail') {
             botToken = getFailBotToken();
