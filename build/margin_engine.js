@@ -7,7 +7,7 @@
  * 2. Sort by marginal_hourly_value ascending.
  * 3. Calculate 1% limit (Math.ceilensures >= 1).
  * 4. Kill the bottom tasks.
- * 5. Send Adams-style Telegram summary.
+ * 5. Update rotation if the chosen task was purged.
  */
 function marginal_6h_purge() {
     try {
@@ -18,6 +18,7 @@ function marginal_6h_purge() {
         const nameIdx = headers.indexOf('name');
         const marginalIdx = headers.indexOf('marginal_hourly_value');
         const stateIdx = headers.indexOf('state');
+        const chosenIdx = headers.indexOf('is_chosen');
         const activeTasks = [];
         for (let i = 1; i < data.length; i++) {
             if (data[i][stateIdx] === 'active') {
@@ -33,15 +34,22 @@ function marginal_6h_purge() {
             return;
         // Sort by marginal value ascending (lowest first)
         activeTasks.sort((a, b) => a.marginal - b.marginal);
-        // Calculate purge count (at least 1)
         const purgeCount = Math.ceil(activeTasks.length * 0.01);
         const purged = activeTasks.slice(0, purgeCount);
         const purgedNames = [];
+        let chosenTaskWasPurged = false;
         for (const task of purged) {
+            // Check if this task was the chosen one
+            if (data[task.rowIdx][chosenIdx] === true || data[task.rowIdx][chosenIdx] === 'TRUE') {
+                chosenTaskWasPurged = true;
+            }
             sheet.getRange(task.rowIdx + 1, stateIdx + 1).setValue('killed');
             purgedNames.push(task.name.toLowerCase());
         }
-        // Send Telegram notification (Douglas Adams style, all lowercase)
+        // If the active task was killed, we MUST pick a new one
+        if (chosenTaskWasPurged) {
+            updateScoresAndChooseNextTask_('purge_action');
+        }
         const msg = `*the 6h purge occurs*\n\n` +
             `another fragment of the universe has succumbed to entropy. \n\n` +
             `these tasks were found to be inefficient enough to merit non-existence:\n- ${purgedNames.join('\n- ')}\n\n` +
@@ -54,7 +62,6 @@ function marginal_6h_purge() {
 }
 /**
  * Midnight Evaluation Trigger.
- * Aggregates performance, updates evaluation sheet, and reports summary.
  */
 function marginal_midnight_eval() {
     try {
@@ -63,7 +70,7 @@ function marginal_midnight_eval() {
         const yesterdayStart = new Date(today);
         yesterdayStart.setDate(today.getDate() - 1);
         const dateStr = yesterdayStart.toISOString().split('T')[0];
-        // 1. Calculate Chain Value (from yesterday's tasklogs)
+        // Optimized parsing: fetch logs once
         const logSheet = getMarginSheet_(MARGIN_LOGS_SHEET);
         const logData = logSheet.getDataRange().getValues();
         const logHeaders = logData[0];
@@ -71,35 +78,35 @@ function marginal_midnight_eval() {
         const logTsIdx = logHeaders.indexOf('timestamp');
         let valueChain = 0;
         for (let i = 1; i < logData.length; i++) {
-            const ts = new Date(logData[i][logTsIdx]);
+            const rawTs = logData[i][logTsIdx];
+            if (!rawTs)
+                continue;
+            const ts = new Date(rawTs);
             if (ts >= yesterdayStart && ts < today) {
                 valueChain += Number(logData[i][logValueIdx]) || 0;
             }
         }
-        // 2. Calculate Extra Value (from yesterday's extratasks)
         const extraSheet = getMarginSheet_(MARGIN_EXTRAS_SHEET);
         const extraData = extraSheet.getDataRange().getValues();
-        const extraValueIdx = 2; // Col C: value
-        const extraTsIdx = 0; // Col A: timestamp
         let valueExtras = 0;
         for (let i = 1; i < extraData.length; i++) {
-            const ts = new Date(extraData[i][extraTsIdx]);
+            const rawTs = extraData[i][0];
+            if (!rawTs)
+                continue;
+            const ts = new Date(rawTs);
             if (ts >= yesterdayStart && ts < today) {
-                valueExtras += Number(extraData[i][extraValueIdx]) || 0;
+                valueExtras += Number(extraData[i][2]) || 0;
             }
         }
         const totalValue = valueChain + valueExtras;
-        // 3. Update evaluation sheet
         const evalSheet = getMarginSheet_(MARGIN_EVAL_SHEET);
         const evalData = evalSheet.getDataRange().getValues();
-        // rank_days: count rows with higher total_value
         let rank = 1;
         for (let i = 1; i < evalData.length; i++) {
-            if (Number(evalData[i][3]) > totalValue) { // total_value is col D
+            if (Number(evalData[i][3]) > totalValue) { // total_value col D
                 rank++;
             }
         }
-        // rolling_avg_10d: average of the last 10 rows
         const last10Rows = evalData.slice(-10);
         const sumLast10 = last10Rows.reduce((sum, row) => sum + (Number(row[3]) || 0), totalValue);
         const rollingAvg = sumLast10 / (last10Rows.length + 1);
@@ -113,7 +120,6 @@ function marginal_midnight_eval() {
             rollingAvg.toFixed(2),
             performanceVsAvg.toFixed(2)
         ]);
-        // 4. Send Adams-style report
         const msg = `*daily summary report: ${dateStr.toLowerCase()}*\n\n` +
             `chain value: ${valueChain.toFixed(2)} €\n` +
             `extra value: ${valueExtras.toFixed(2)} €\n` +

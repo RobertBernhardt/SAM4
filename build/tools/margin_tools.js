@@ -13,11 +13,28 @@ function getMarginSheet_(name) {
     return sheet;
 }
 /**
- * Calculates the expected value based on worst/best case and probability.
- * Formula: (worst_case * (100 - prob)/100) + (best_case * prob/100)
+ * Normalizes probability to a decimal between 0 and 1.
+ * Handles strings like "40,00%", numbers like 40, or decimals like 0.4.
  */
-function calculateExpectedValue_(worst, best, probBest) {
-    return (worst * (100 - probBest) / 100) + (best * probBest / 100);
+function sanitizeProbability_(prob) {
+    if (typeof prob === 'string') {
+        prob = prob.replace('%', '').replace(',', '.').trim();
+    }
+    const n = Number(prob);
+    if (isNaN(n))
+        return 0;
+    // If the value is > 1 (e.g., 40 for 40%), convert to decimal 0.4
+    if (n > 1)
+        return n / 100;
+    return n;
+}
+/**
+ * Calculates the expected value based on worst/best case and probability.
+ * Formula: (worst * (1 - prob)) + (best * prob)
+ */
+function calculateExpectedValue_(worst, best, probRaw) {
+    const prob = sanitizeProbability_(probRaw);
+    return (worst * (1 - prob)) + (best * prob);
 }
 /**
  * Calculates marginal hourly value.
@@ -45,32 +62,39 @@ function updateScoresAndChooseNextTask_(excludedId) {
     const nameIdx = headers.indexOf('name');
     let maxScore = -Infinity;
     let nextTaskName = 'none';
-    let winnerRow = -1;
+    let winnerRowIdx = -1;
+    // Use a batch update approach for performance
+    const scores = [];
+    const chosen = [];
     for (let i = 1; i < data.length; i++) {
         const taskId = data[i][idIdx];
         const state = data[i][stateIdx];
         const currentScore = Number(data[i][scoreIdx]) || 0;
         const marginal = Number(data[i][marginalIdx]) || 0;
+        let newScore = currentScore;
+        let isChosen = false;
         if (state === 'active') {
-            let newScore = currentScore;
             // Inflate score for all active tasks EXCEPT the one that was just handled
             if (taskId !== excludedId) {
                 newScore += Math.ceil(marginal);
             }
-            sheet.getRange(i + 1, scoreIdx + 1).setValue(newScore);
-            sheet.getRange(i + 1, chosenIdx + 1).setValue(false);
             if (newScore > maxScore) {
                 maxScore = newScore;
                 nextTaskName = data[i][nameIdx];
-                winnerRow = i + 1;
+                winnerRowIdx = i;
             }
         }
-        else {
-            sheet.getRange(i + 1, chosenIdx + 1).setValue(false);
-        }
+        scores.push([newScore]);
+        chosen.push([isChosen]);
     }
-    if (winnerRow !== -1) {
-        sheet.getRange(winnerRow, chosenIdx + 1).setValue(true);
+    // Set the new winner in our local arrays
+    if (winnerRowIdx !== -1) {
+        chosen[winnerRowIdx - 1] = [true];
+    }
+    // Single batch update per column for speed
+    if (scores.length > 0) {
+        sheet.getRange(2, scoreIdx + 1, scores.length, 1).setValues(scores);
+        sheet.getRange(2, chosenIdx + 1, chosen.length, 1).setValues(chosen);
     }
     return nextTaskName;
 }
@@ -103,7 +127,7 @@ function executeMarginalLogExecution(args) {
     const taskId = taskRow[idIdx];
     const oldWorst = Number(taskRow[worstIdx]);
     const oldBest = Number(taskRow[bestIdx]);
-    const oldProb = Number(taskRow[probIdx]);
+    const oldProb = taskRow[probIdx]; // Keep raw for santization
     const oldDuration = Number(taskRow[durationIdx]);
     // 1. Calculate expected value (old expectations)
     const expectedValue = calculateExpectedValue_(oldWorst, oldBest, oldProb);
@@ -206,14 +230,7 @@ function executeMarginalKillSkip(args) {
     const rowNum = activeRowIdx + 1;
     const taskId = data[activeRowIdx][idIdx];
     if (args.action === 'skip') {
-        const logSheet = getMarginSheet_(MARGIN_LOGS_SHEET);
-        logSheet.appendRow([
-            Utilities.getUuid(),
-            taskId,
-            new Date().toISOString(),
-            0, // 0 minutes
-            0 // 0 €
-        ]);
+        // PER USER REQUIREMENT: handle skips by resetting score and rotating without appending to ledger.
         sheet.getRange(rowNum, scoreIdx + 1).setValue(1);
     }
     else if (args.action === 'kill') {
