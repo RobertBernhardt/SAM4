@@ -101,15 +101,17 @@ function marginal_midnight_eval() {
         // 3. Update evaluation sheet
         const evalSheet = getMarginSheet_(MARGIN_EVAL_SHEET);
         const evalData = evalSheet.getDataRange().getValues();
-        let rank = 1;
-        for (let i = 1; i < evalData.length; i++) {
-            if (Number(evalData[i][3]) > totalValue) { // total_value is col D
-                rank++;
-            }
-        }
-        const last10Rows = evalData.slice(-10);
+        // PER USER REQUIREMENT: Strip the header row
+        const history = evalData.slice(1);
+        // PER USER REQUIREMENT: Optimize rank calculation via fast in-memory filter
+        // rank: filter for values strictly greater than today's calculated total value + 1
+        const rank = history.map(row => Number(row[3]) || 0).filter(val => val > totalValue).length + 1;
+        // PER USER REQUIREMENT: Fix 10-day rolling average using history.slice(-10) 
+        // to prevent inclusion of the header string as NaN.
+        const last10Rows = history.slice(-10);
         const sumLast10 = last10Rows.reduce((sum, row) => sum + (Number(row[3]) || 0), totalValue);
         const rollingAvg = sumLast10 / (last10Rows.length + 1);
+        // PER USER REQUIREMENT: Simple performance calculation
         const performanceVsAvg = totalValue - rollingAvg;
         evalSheet.appendRow([
             dateStr,
@@ -120,22 +122,12 @@ function marginal_midnight_eval() {
             rollingAvg.toFixed(2),
             performanceVsAvg.toFixed(2)
         ]);
-        // 4. Generate energetic report via AI
-        const rawMetrics = {
-            date: dateStr,
-            valueChain: valueChain.toFixed(2),
-            valueExtras: valueExtras.toFixed(2),
-            totalValue: totalValue.toFixed(2),
-            rank: rank,
-            totalDays: evalData.length,
-            rollingAvg: rollingAvg.toFixed(2),
-            performanceVsAvg: performanceVsAvg.toFixed(2)
-        };
+        // 4. Send report template 
         const msg = `*daily summary report: ${dateStr.toLowerCase()}*\n\n` +
             `chain value: ${valueChain.toFixed(2)} €\n` +
             `extra value: ${valueExtras.toFixed(2)} €\n` +
             `total value: ${totalValue.toFixed(2)} €\n\n` +
-            `rank: ${rank} out of ${evalData.length} recorded days\n` +
+            `rank: ${rank} out of ${history.length + 1} recorded days\n` +
             `10d rolling average: ${rollingAvg.toFixed(2)} €\n` +
             `performance vs average: ${performanceVsAvg.toFixed(2)} €\n\n` +
             `here i am, brain the size of a planet, calculating your small change.`;
