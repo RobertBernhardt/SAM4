@@ -110,6 +110,7 @@ function doPost(e: GoogleAppsScript.Events.DoPost): GoogleAppsScript.Content.Tex
             try {
                 const result = handleSubquestApproval(parentId, subId, weight, newDesc);
                 sendReply(getSubquestBotToken(), chatId, [result]);
+                deliverNextOutboxMessage_('subquest');
             } catch (err) {
                 sendReply(getSubquestBotToken(), chatId, [`❌ Failed to approve subquest: ${String(err)}`]);
             }

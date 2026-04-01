@@ -167,23 +167,21 @@ function queueOutboxMessage_(questId, message, bot, metadata) {
         sheet.getRange('E1').setValue('bot');
         sheet.getRange('F1').setValue('metadata');
     }
-    let hasPending = false;
+    // Check if THIS SPECIFIC BOT already has something pending or delivered
+    let hasBotPending = false;
+    let hasBotDelivered = false;
     for (let i = 1; i < data.length; i++) {
-        if (String(data[i][3]).trim() === 'PENDING') {
-            hasPending = true;
-            break;
+        const rowStatus = String(data[i][3]).trim();
+        const rowBot = String(data[i][4] || 'quest').trim();
+        if (rowBot === bot) {
+            if (rowStatus === 'PENDING')
+                hasBotPending = true;
+            if (rowStatus === 'DELIVERED')
+                hasBotDelivered = true;
         }
     }
-    // Also check if there's already a DELIVERED message awaiting reply
-    let hasDeliveredAwaiting = false;
-    for (let i = data.length - 1; i > 0; i--) {
-        if (String(data[i][3]).trim() === 'DELIVERED') {
-            hasDeliveredAwaiting = true;
-            break;
-        }
-    }
-    if (!hasPending && !hasDeliveredAwaiting) {
-        // Nothing pending and no outstanding delivery — try to send immediately
+    if (!hasBotPending && !hasBotDelivered) {
+        // Safe to send THIS bot's message immediately
         try {
             deliverMessage_(message, bot, metadata);
             sheet.appendRow([new Date().toISOString(), questId, message, 'DELIVERED', bot, metadata || '']);
@@ -196,7 +194,7 @@ function queueOutboxMessage_(questId, message, bot, metadata) {
     }
     else {
         sheet.appendRow([new Date().toISOString(), questId, message, 'PENDING', bot, metadata || '']);
-        Logger.log(`[OUTBOX] Queued: ${questId} (bot=${bot})`);
+        Logger.log(`[OUTBOX] Queued: ${questId} (bot=${bot} - awaiting reply)`);
     }
 }
 /**
@@ -204,24 +202,38 @@ function queueOutboxMessage_(questId, message, bot, metadata) {
  * also sets LATEST_SUBQUEST from the metadata so the NL parser knows the context.
  */
 function deliverMessage_(message, bot, metadata) {
+    const greeting = "lord troll,\n\n";
+    // Do NOT lowercase everything! It breaks Doc IDs (case-sensitive) and Markdown links.
+    // Trust the system prompts for lowercase output.
+    let finalMsg = message.trim();
+    if (!finalMsg.toLowerCase().startsWith("lord troll")) {
+        finalMsg = greeting + finalMsg;
+    }
+    // Surgical lowercase fixes if needed, but avoid breaking links [text](link)
+    // For now, let's just do the requested "I" and "AI" fixes on the whole block
+    finalMsg = finalMsg.replace(/\b(i)\b/g, 'I').replace(/\b(ai)\b/gi, 'AI');
     if (bot === 'subquest') {
-        // Set proposal context for the NL parser
         if (metadata) {
             PropertiesService.getScriptProperties().setProperty('LATEST_SUBQUEST', metadata);
         }
-        sendReply(getSubquestBotToken(), getAdminChatId(), [message]);
+        sendReply(getSubquestBotToken(), getAdminChatId(), [finalMsg]);
+    }
+    else if (bot === 'agent') {
+        sendReply(getAgentBotToken(), getAdminChatId(), [finalMsg]);
     }
     else {
-        sendReply(getQuestBotToken(), getAdminChatId(), [message]);
+        sendReply(getQuestBotToken(), getAdminChatId(), [finalMsg]);
     }
 }
-function deliverNextOutboxMessage_() {
+function deliverNextOutboxMessage_(optionalBotFilter) {
     const sheet = getOutboxSheet_();
     const data = sheet.getDataRange().getValues();
     for (let i = 1; i < data.length; i++) {
         if (String(data[i][3]).trim() === 'PENDING') {
             const message = String(data[i][2]);
             const bot = String(data[i][4] || 'quest').trim();
+            if (optionalBotFilter && bot !== optionalBotFilter)
+                continue;
             const metadata = String(data[i][5] || '').trim();
             try {
                 deliverMessage_(message, bot, metadata);
@@ -326,17 +338,19 @@ function processQuests() {
     try {
         const userInfoResults = runAlgo('userinfoalgo', `${uid}_userinfo`, userInfoPrompt);
         const bulletPoints = userInfoResults.join('\n');
-        const safeQuestId = quest.questId.replace(/_/g, '\\_').replace(/\*/g, '\\*');
+        const displayQuestId = quest.questId.replace(/_/g, ' ');
+        const displayDescription = quest.description;
         telegramMessage = [
-            `📋 *Quest: ${safeQuestId}* (Run #${runNumber})`,
+            `📋 *quest: ${displayQuestId}* (run #${runNumber})`,
+            `_objective: ${displayDescription}_`,
             ``,
             bulletPoints,
             ``,
-            `📄 [Full Report](${reportDocUrl})`,
+            `📄 [full report](${reportDocUrl})`,
         ].join('\n');
     }
     catch (e) {
-        telegramMessage = `📋 *Quest: ${quest.questId}* (Run #${runNumber})\n\nReport generation succeeded, but summarization failed. Please check the document.\n\n📄 [Full Report](${reportDocUrl})`;
+        telegramMessage = `📋 *quest: ${quest.questId.replace(/_/g, ' ')}* (run #${runNumber})\n\nreport generation succeeded, but summarization failed. check it here.\n\n📄 [full report](${reportDocUrl})`;
     }
     // Find the exact row to update
     const finalData = logSheet.getDataRange().getValues();
@@ -354,26 +368,24 @@ function processQuests() {
 }
 // ─── Subquest Proposal (Called via SCRIPT Tool) ─────────────
 function suggestSubquest(parentId, suggestedId, weight, description) {
-    // Queue proposal through the Outbox — NO direct send, NO immediate ScriptProperty write.
-    // LATEST_SUBQUEST is set only when the message is actually delivered.
     const proposalMetadata = JSON.stringify({ parentId, suggestedId, weight, description });
-    const safeParentId = parentId.replace(/_/g, '\\_').replace(/\*/g, '\\*');
-    const safeDescription = description.replace(/_/g, '\\_').replace(/\*/g, '\\*');
+    const displayParentId = parentId.replace(/_/g, ' ');
+    const displayId = suggestedId.replace(/_/g, ' ');
     const message = [
-        `🧩 *Subquest Proposal* (from ${safeParentId})`,
-        `ID: \`${suggestedId}\``,
-        `Suggested Weight: ${weight}`,
+        `🧩 *subquest proposed* (requirement for ${displayParentId})`,
+        `id: \`${displayId}\``,
+        `suggested weight: ${weight}`,
         ``,
-        `Description: ${safeDescription}`,
+        `desc: ${description}`,
         ``,
-        `_Reply naturally to approve or reject (e.g., "approve, focus on Berlin")_`
+        `_reply naturally to approve or reject_`
     ].join('\n');
     try {
         queueOutboxMessage_(suggestedId, message, 'subquest', proposalMetadata);
-        return `Subquest "${suggestedId}" proposed to Creator. Queued for delivery.`;
+        return `subquest "${displayId}" proposed to lord troll.`;
     }
     catch (err) {
-        return `Failed to queue subquest proposal: ${err}`;
+        return `failed to queue subquest: ${err}`;
     }
 }
 // ─── Natural Language (NL) Parsers ──────────────────────────
@@ -576,10 +588,10 @@ function createNewQuest_(questId, description, weight) {
     ]);
     SpreadsheetApp.flush();
     return [
-        `✅ Quest Created!`,
-        `ID: \`${questId}\``,
-        `Weight: ${weight}`,
-        `Description: ${description}`
+        `✅ quest created!`,
+        `id: \`${questId.replace(/_/g, ' ')}\``,
+        `weight: ${weight}`,
+        `desc: ${description}`
     ].join('\n');
 }
 // ─── Telegram Webhook Handlers ──────────────────────────────
@@ -629,12 +641,16 @@ function handleQuestUpdate(questId, action, feedback) {
                 try {
                     const fuResult = runAlgo('follow_up_algo', `fu_${new Date().getTime()}`, `Quest: ${questId}\nDescription: ${questDesc}`);
                     const fuJson = JSON.parse(fuResult.join('').match(/\{[\s\S]*?\}/)[0]);
+                    const displayQuestId = questId.replace(/_/g, ' ');
                     const msg = [
-                        `🌟 *Follow-Up Quest Suggested*`,
-                        `ID: \`${fuJson.suggested_quest_id}\``,
-                        `Weight: ${fuJson.weight}`,
-                        `Desc: ${fuJson.description}`,
-                        `\n_Reply naturally to create or reject._`
+                        `🌟 *follow-up quest suggested*`,
+                        `parent: ${displayQuestId}`,
+                        `parent desc: ${questDesc}`,
+                        ``,
+                        `id: \`${fuJson.suggested_quest_id.replace(/_/g, ' ')}\``,
+                        `weight: ${fuJson.weight}`,
+                        `desc: ${fuJson.description}`,
+                        `\n_reply naturally to create or reject_`
                     ].join('\n');
                     queueOutboxMessage_(fuJson.suggested_quest_id, msg, 'subquest', JSON.stringify(fuJson));
                 }
@@ -654,12 +670,15 @@ function handleQuestUpdate(questId, action, feedback) {
                     const sqPrompt = `Quest: ${questId}\nDescription: ${questDesc}\n\nExecution Report:\n${reportContent.substring(0, 3000)}`;
                     const sqResult = runAlgo('subquest_proposal_algo', `sq_${new Date().getTime()}`, sqPrompt);
                     const sqJson = JSON.parse(sqResult.join('').match(/\{[\s\S]*?\}/)[0]);
+                    const displayQuestId = questId.replace(/_/g, ' ');
                     const msg = [
-                        `🧩 *Subquest Proposed* (Requirement for ${questId})`,
-                        `ID: \`${sqJson.suggested_id}\``,
-                        `Weight: ${sqJson.weight || 50}`,
-                        `Desc: ${sqJson.description}`,
-                        `\n_Reply naturally to approve or reject._`
+                        `🧩 *subquest proposed* (requirement for ${displayQuestId})`,
+                        `parent desc: ${questDesc}`,
+                        ``,
+                        `id: \`${sqJson.suggested_id.replace(/_/g, ' ')}\``,
+                        `weight: ${sqJson.weight || 50}`,
+                        `desc: ${sqJson.description}`,
+                        `\n_reply naturally to approve or reject_`
                     ].join('\n');
                     queueOutboxMessage_(sqJson.suggested_id, msg, 'subquest', JSON.stringify({
                         parentId: questId, suggestedId: sqJson.suggested_id, weight: sqJson.weight || 50, description: sqJson.description
@@ -715,7 +734,9 @@ function handleSubquestApproval(parentId, subId, weight, newDesc) {
         }
     }
     SpreadsheetApp.flush();
-    return `✅ Subquest Created!\nID: ${subId}\nParent: ${parentId}\nWeight: ${weight}\n(Parent "${parentId}" paused until completed)`;
+    const displaySubId = subId.replace(/_/g, ' ');
+    const displayParentId = parentId.replace(/_/g, ' ');
+    return `✅ subquest created!\nid: ${displaySubId}\nparent: ${displayParentId}\nweight: ${weight}\n(parent "${displayParentId}" paused)`;
 }
 // ─── Active Quests TaskBot Listing ──────────────────────────
 function sendActiveQuestsList_() {

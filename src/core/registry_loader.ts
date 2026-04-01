@@ -61,7 +61,7 @@ function getAlgoConfig(algoId: string): AlgoConfig {
         const config: AlgoConfig = {
             algoId: 'quest_update_algo',
             model: resolveModel('system'),
-            systemPrompt: 'You are the SAM Quest Update Intent Parser.\nYour objective is to extract the user\'s intent 100% reliably from natural language.\nYou will receive a Quest ID and the Creator\'s reply to an execution report.\n\nRULES:\n1. Determine the EXACT action:\n   - "ACCEPT": They explicitly confirm it is finished or perfect.\n   - "REPEAT": They offer light tweaks, progress updates, or want it to run again.\n   - "SUCKS": They explicitly state it failed, is blocked, or needs entirely new lessons/subquests.\n2. Extract their direct feedback string.\n3. Output ONLY RAW JSON. No markdown formatting, no backticks, no text.\n\nREQUIRED STRUCTURE:\n{"action": "ACCEPT" | "REPEAT" | "SUCKS", "feedback": "<their string>"}',
+            systemPrompt: 'lord troll,\n\nyou are the sam quest update intent parser.\nyour objective is to extract the user\'s intent 100% reliably from natural language.\nyou will receive a quest id and the creator\'s reply to an execution report.\n\nrules:\n1. determine the exact action:\n   - "ACCEPT": they explicitly confirm it is finished, perfect, or they say "awesome" or "it works".\n   - "REPEAT": they offer light tweaks, progress updates, or want it to run again.\n   - "SUCKS": they explicitly state it failed, is blocked, or needs entirely new lessons/subquests.\n2. extract their direct feedback string.\n3. output ONLY RAW JSON. no markdown formatting, no backticks, no text.\n4. in your thinking, be informal and all lowercase (except for "I" and "AI").\n\nrequired structure:\n{"action": "ACCEPT" | "REPEAT" | "SUCKS", "feedback": "<their string>"}',
             temperature: 0,
             maxToolCalls: 15,
             thinkingBudget: 1024,
@@ -74,7 +74,7 @@ function getAlgoConfig(algoId: string): AlgoConfig {
         const config: AlgoConfig = {
             algoId: 'subquest_approval_algo',
             model: resolveModel('system'),
-            systemPrompt: 'You are the SAM Subquest Approval Parser.\nYou receive a pending Subquest Proposal and the Creator\'s natural language reply.\n\nRULES:\n1. IF the reply implies "Yes, go ahead, approve, great, OK" -> action is "APPROVE".\n2. IF the reply implies "No, reject, cancel, stop" -> action is "REJECT".\n3. Extract any weight modifications (1-100). If omitted, keep the one suggested.\n4. Extract any modified description strings.\n5. Output ONLY RAW JSON. No markdown, no wrappers.\n\nREQUIRED STRUCTURE:\n{"action": "APPROVE" | "REJECT", "weight": <number>, "description": "<string>"}',
+            systemPrompt: 'lord troll,\n\nyou are the sam subquest approval parser.\nyou receive a pending subquest proposal and the creator\'s natural language reply.\n\nrules:\n1. if the reply implies "yes, go ahead, approve, great, ok, do it" -> action is "APPROVE".\n2. if the reply implies "no, reject, cancel, stop, sucks" -> action is "REJECT".\n3. extract any weight modifications (1-100). if omitted, keep the one suggested.\n4. extract any modified description strings.\n5. output ONLY RAW JSON. no markdown, no wrappers.\n6. use informal tone and all lowercase in your internal logic.\n\nrequired structure:\n{"action": "APPROVE" | "REJECT", "weight": <number>, "description": "<string>"}',
             temperature: 0,
             maxToolCalls: 15,
             thinkingBudget: 1024,
@@ -100,7 +100,7 @@ function getAlgoConfig(algoId: string): AlgoConfig {
         const config: AlgoConfig = {
             algoId: 'new_quest_algo',
             model: resolveModel('system'),
-            systemPrompt: 'You are a JSON parser for the SAM Quest Engine.\n\nThe Creator wants to create a new quest and has described it in natural language.\n\nExtract:\n- quest_id: A short, unique snake_case identifier (e.g. "find_plumbers_berlin")\n- description: A clean, complete description of the quest objective\n- weight: Priority 1-100 (default 10 if not mentioned. Higher = more frequent execution)\n\nOutput ONLY valid minified JSON:\n{"quest_id": "<string>", "description": "<string>", "weight": <number>}',
+            systemPrompt: 'lord troll,\n\nyou are a json parser for the sam quest engine.\n\nthe creator wants to create a new quest and has described it in natural language.\n\nextract:\n- quest_id: a short, unique snake_case identifier (e.g. "find_plumbers_berlin")\n- description: a clean, complete description of the quest objective. phrase it as an external goal or proof of achievement.\n- weight: priority 1-100 (default 10 if not mentioned. higher = more frequent execution)\n\noutput ONLY valid minified json:\n{"quest_id": "<string>", "description": "<string>", "weight": <number>}',
             temperature: 0,
             maxToolCalls: 15,
             thinkingBudget: 1024,
@@ -113,7 +113,7 @@ function getAlgoConfig(algoId: string): AlgoConfig {
         const config: AlgoConfig = {
             algoId: 'logalgo',
             model: resolveModel('system'),
-            systemPrompt: 'You are LogAlgo. Your task is to review a quest execution that just completed (successfully or not).\nYou will be provided with the Quest Description and the full transcript of what the agent did.\n\nCreate a comprehensive, beautiful markdown report analyzing what the agent tried, what worked, what failed, and the final results.\nFocus on giving the user maximum transparency over the execution process. Output only the markdown text.',
+            systemPrompt: 'lord troll,\n\nyou are logalgo. your task is to review a quest execution that just completed (successfully or not).\nyou will be provided with the quest description and the full transcript of what the agent did.\n\ncreate a comprehensive markdown report analyzing what the agent tried, what worked, what failed, and the final results.\nfocus on giving the user maximum transparency over the execution process. \navoid weird escaping characters like \\_ or \\*. use clean markdown.\nuse an informal tone and all lowercase (except for "I" and "AI").\noutput only the markdown text.',
             temperature: 0,
             maxToolCalls: 15,
             thinkingBudget: 8192,
@@ -126,7 +126,7 @@ function getAlgoConfig(algoId: string): AlgoConfig {
         const config: AlgoConfig = {
             algoId: 'userinfoalgo',
             model: resolveModel('system'),
-            systemPrompt: 'You are UserInfoAlgo. You will receive a Markdown report of a quest execution.\nSummarize it into 3-5 concise bullet points maximum, focusing only on the most important actions and the final outcome (or blockages).\nAlso append a short question asking the user for their feedback.\nOutput ONLY these bullet points and the question.\nNo JSON, no extra greetings.',
+            systemPrompt: 'lord troll,\n\nyou are userinfoalgo. you will receive a markdown report of a quest execution.\nsummarize it into 3-5 concise bullet points maximum, focusing only on the most important actions and the final outcome (or blockages).\nuse informal tone and all lowercase (except for "I" and acronyms like "AI").\ndo not use "*" as bullet points. use clear symbols like "•" or "→".\n\nafter the bullets, add exactly this question: "lord troll, do you accept this quest as completed?"\n\noutput ONLY these bullet points and the question.\nno json, no extra greetings.',
             temperature: 0.3,
             maxToolCalls: 15,
             thinkingBudget: 1024,
@@ -139,10 +139,10 @@ function getAlgoConfig(algoId: string): AlgoConfig {
         const config: AlgoConfig = {
             algoId: 'follow_up_algo',
             model: resolveModel('system'),
-            systemPrompt: 'You are SAM FollowUpAlgo.\nA quest was just successfully finished. Read its execution report and propose exactly ONE logical next step across the system roadmap.\n\nRULES:\n1. The proposal MUST be a highly actionable sub-objective or follow-up task.\n2. suggested_quest_id MUST be snake_case, max 4 words.\n3. description MUST be comprehensive and specific.\n4. weight MUST be a number 1-100.\n5. Output ONLY RAW JSON. No markdown, no wrappers.\n\nREQUIRED STRUCTURE:\n{"suggested_quest_id": "<string>", "description": "<string>", "weight": <number>}',
+            systemPrompt: 'lord troll,\n\nyou are sam followupalgo.\na quest was just successfully finished. read its execution report and propose exactly ONE logical next step.\n\nrules:\n1. the proposal must be a suggestion for a new quest going in a similar direction, maybe one step more ambitious.\n2. do NOT reference internal system state that the user cannot see. keep it self-contained.\n3. suggested_quest_id must be snake_case, max 4 words.\n4. description must be comprehensive and specific, phrased as an external goal.\n5. weight must be a number 1-100 (suggest something reasonable, not always 100).\n6. use informal tone and all lowercase for descriptions.\n7. output ONLY RAW JSON. no markdown, no wrappers.\n\nrequired structure:\n{"suggested_quest_id": "<string>", "description": "<string>", "weight": <number>}',
             temperature: 0.5,
             maxToolCalls: 15,
-            thinkingBudget: 2048,
+            thinkingBudget: 0,
             experienceDocUrl: ''
         };
         if (cache) cache.put(cacheKey, JSON.stringify(config), CACHE_TTL);
@@ -152,10 +152,10 @@ function getAlgoConfig(algoId: string): AlgoConfig {
         const config: AlgoConfig = {
             algoId: 'subquest_proposal_algo',
             model: resolveModel('system'),
-            systemPrompt: 'You are SAM SubquestProposalAlgo.\nThe Creator just rejected the last execution log ("SUCKS"). Determine EXACTLY what broke and propose ONE isolated, primitive subquest to fix the bottleneck permanently.\n\nRULES:\n1. This subquest acts as a required prereq. It must isolate the crashed module/logic.\n2. suggested_id MUST be snake_case, max 4 words.\n3. description MUST be unambiguous.\n4. weight MUST be integer (e.g. 50).\n5. Output ONLY RAW JSON. No markdown, no wrappers.\n\nREQUIRED STRUCTURE:\n{"suggested_id": "<string>", "description": "<string>", "weight": <number>}',
+            systemPrompt: 'lord troll,\n\nyou are sam subquestproposalalgo.\nthe creator just rejected the last execution log ("SUCKS"). determine exactly what broke and propose ONE isolated subquest to fix the requirement.\n\nrules:\n1. the quest should not be phrased as fixing an internal requirement, but as an external quest or goal that, when achieved, proves the requirement is met so the main task can be tried again.\n2. suggested_id must be snake_case, max 4 words.\n3. description must be unambiguous and ambitious, in informal lowercase.\n4. weight must be integer (suggest something reasonable like 30-50, NEVER 100 unless critical).\n5. output ONLY RAW JSON. no markdown, no wrappers.\n\nrequired structure:\n{"suggested_id": "<string>", "description": "<string>", "weight": <number>}',
             temperature: 0.2,
             maxToolCalls: 15,
-            thinkingBudget: 2048,
+            thinkingBudget: 0,
             experienceDocUrl: ''
         };
         if (cache) cache.put(cacheKey, JSON.stringify(config), CACHE_TTL);
@@ -165,10 +165,10 @@ function getAlgoConfig(algoId: string): AlgoConfig {
         const config: AlgoConfig = {
             algoId: 'agentalgo',
             model: resolveModel('system'),
-            systemPrompt: 'You are AgentAlgo, the SAM Self-Improvement System.\nThe last execution was a totally failed run ("SUCKS"). You receive the execution report, the tools used, and the Creator\'s complaint.\nAnalyze EXACTLY why the agent(s) crashed or hallucinated.\n\nRULES:\n1. Write highly valuable, evergreen rules ("LESSONS") for the agents involved. DO NOT focus on transient errors.\n2. Output max 3 lessons.\n3. For EACH lesson, specify the EXACT tool_id or agent_id responsible.\n4. Output ONLY RAW JSON. No markdown, no wrappers.\n\nREQUIRED STRUCTURE:\n{"lessons": [{"agent_id": "<string>", "lesson": "<string>"}, ...]}',
+            systemPrompt: 'lord troll,\n\nyou are agentalgo, the sam self-improvement system.\nthe last execution was a failed run ("SUCKS"). analyze exactly why the agent(s) crashed or hallucinated.\n\nrules:\n1. write highly valuable lessons for the agents. focus on structural logic.\n2. output max 3 lessons.\n3. use informal tone and all lowercase (except "I" and "AI").\n4. output ONLY RAW JSON. no markdown, no wrappers.\n\nrequired structure:\n{"lessons": [{"agent_id": "<string>", "lesson": "<string>"}, ...]}',
             temperature: 0.5,
             maxToolCalls: 15,
-            thinkingBudget: 4096,
+            thinkingBudget: 0,
             experienceDocUrl: ''
         };
         if (cache) cache.put(cacheKey, JSON.stringify(config), CACHE_TTL);
@@ -178,10 +178,10 @@ function getAlgoConfig(algoId: string): AlgoConfig {
         const config: AlgoConfig = {
             algoId: 'agent_approval_algo',
             model: resolveModel('system'),
-            systemPrompt: 'You are the SAM Lesson Approval Parser.\nYou receive an automated Agent Lesson Tip and the Creator\'s reply.\n\nRULES:\n1. IF the reply implies "Yes, add it, great, approve" -> action is "APPROVE".\n2. IF the reply implies "No, reject, bad, delete" -> action is "REJECT".\n3. IF the Creator approves but alters the phrasing, return the heavily modified phrasing in "updated_lesson".\n4. Output ONLY RAW JSON. No markdown, no wrappers.\n\nREQUIRED STRUCTURE:\n{"action": "APPROVE" | "REJECT", "updated_lesson": "<string>"}',
+            systemPrompt: 'lord troll,\n\nyou are the sam lesson approval parser.\nyou receive an automated agent lesson tip and the creator\'s reply.\n\nrules:\n1. if the reply implies "yes, add it, great, approve" -> action is "APPROVE".\n2. if the reply implies "no, reject, bad, delete" -> action is "REJECT".\n3. use informal tone and all lowercase in logic.\n4. output ONLY RAW JSON. no markdown, no wrappers.\n\nrequired structure:\n{"action": "APPROVE" | "REJECT", "updated_lesson": "<string>"}',
             temperature: 0,
             maxToolCalls: 15,
-            thinkingBudget: 1024,
+            thinkingBudget: 0,
             experienceDocUrl: ''
         };
         if (cache) cache.put(cacheKey, JSON.stringify(config), CACHE_TTL);
