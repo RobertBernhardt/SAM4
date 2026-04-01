@@ -29,24 +29,27 @@ function getMarginSheet_(name: string): GoogleAppsScript.Spreadsheet.Sheet {
 
 /**
  * Calculates the expected value based on worst/best case and probability.
+ * Formula: (worst_case * (100 - prob)/100) + (best_case * prob/100)
  */
 function calculateExpectedValue_(worst: number, best: number, probBest: number): number {
-    return ((100 - probBest) * worst + probBest * best) / 100;
+    return (worst * (100 - probBest) / 100) + (best * probBest / 100);
 }
 
 /**
  * Calculates marginal hourly value.
+ * Formula: (expected_value / (duration / 60))
  */
 function calculateMarginalHourlyValue_(expectedValue: number, durationMin: number): number {
     if (durationMin <= 0) return 0;
-    return (expectedValue / durationMin) * 60;
+    return (expectedValue / (durationMin / 60));
 }
 
 /**
  * Updates the scores of all active tasks and picks the new "is_chosen" task.
- * Called after a task execution, skip, or kill.
+ * 
+ * @param excludedId The ID of the task that was just executed/skipped/killed.
  */
-function updateScoresAndChooseNextTask_(): string {
+function updateScoresAndChooseNextTask_(excludedId: string): string {
     const sheet = getMarginSheet_(MARGIN_TASKS_SHEET);
     const data = sheet.getDataRange().getValues();
     const headers = data[0];
@@ -59,60 +62,38 @@ function updateScoresAndChooseNextTask_(): string {
     const nameIdx = headers.indexOf('name');
 
     let maxScore = -Infinity;
-    let nextTaskId = '';
-    let nextTaskName = 'None (All tasks finished or killed)';
-    let bestRowIdx = -1;
-
-    const updates = [];
+    let nextTaskName = 'none';
+    let winnerRow = -1;
 
     for (let i = 1; i < data.length; i++) {
-        const row = data[i];
-        const state = row[stateIdx];
-        const currentScore = Number(row[scoreIdx]) || 0;
-        const marginal = Number(row[marginalIdx]) || 0;
-        const isChosen = row[chosenIdx] === true || row[chosenIdx] === 'TRUE';
+        const taskId = data[i][idIdx];
+        const state = data[i][stateIdx];
+        const currentScore = Number(data[i][scoreIdx]) || 0;
+        const marginal = Number(data[i][marginalIdx]) || 0;
 
         if (state === 'active') {
             let newScore = currentScore;
-            // If it WAS chosen, it was just executed/skipped/killed elsewhere, 
-            // BUT this function is called AFTER that reset. 
-            // Actually, if it's still active, we inflate it IF it's not the one we just reset.
-            // Wait, the logic says: "all the other tasks get their score increased by their marginal hourly value... except for the one which has been executed, which gets set back to 1."
-            
-            // If the task was just executed, its score should already be 1 (set by the calling tool).
-            // We increase score for ALL active tasks that have score > 1? 
-            // No, the rule is simpler: all OTHER tasks get increased.
-            
-            if (currentScore > 1) {
+            // Inflate score for all active tasks EXCEPT the one that was just handled
+            if (taskId !== excludedId) {
                 newScore += Math.ceil(marginal);
             }
             
-            updates.push({ row: i + 1, score: newScore, isChosen: false });
-            
+            sheet.getRange(i + 1, scoreIdx + 1).setValue(newScore);
+            sheet.getRange(i + 1, chosenIdx + 1).setValue(false); 
+
             if (newScore > maxScore) {
                 maxScore = newScore;
-                nextTaskId = row[idIdx];
-                nextTaskName = row[nameIdx];
-                bestRowIdx = updates.length - 1;
+                nextTaskName = data[i][nameIdx];
+                winnerRow = i + 1;
             }
         } else {
-            // Task is completed or killed, ensure is_chosen is false
-            if (isChosen) {
-                updates.push({ row: i + 1, score: currentScore, isChosen: false });
-            }
+            sheet.getRange(i + 1, chosenIdx + 1).setValue(false);
         }
     }
 
-    // Mark the winner
-    if (bestRowIdx !== -1) {
-        updates[bestRowIdx].isChosen = true;
+    if (winnerRow !== -1) {
+        sheet.getRange(winnerRow, chosenIdx + 1).setValue(true);
     }
-
-    // Apply updates to sheet
-    updates.forEach(u => {
-        sheet.getRange(u.row, scoreIdx + 1).setValue(u.score);
-        sheet.getRange(u.row, chosenIdx + 1).setValue(u.isChosen);
-    });
 
     return nextTaskName;
 }
@@ -127,13 +108,12 @@ function executeMarginalLogExecution(args: {
     new_best?: number,
     new_prob?: number,
     new_duration?: number
-}): string {
+}): Record<string, any> {
     const sheet = getMarginSheet_(MARGIN_TASKS_SHEET);
     const data = sheet.getDataRange().getValues();
     const headers = data[0];
 
     const idIdx = headers.indexOf('task_id');
-    const nameIdx = headers.indexOf('name');
     const worstIdx = headers.indexOf('worst_case_value');
     const bestIdx = headers.indexOf('best_case_value');
     const probIdx = headers.indexOf('probability_best');
@@ -151,7 +131,7 @@ function executeMarginalLogExecution(args: {
         }
     }
 
-    if (activeRowIdx === -1) return "No active task found to log execution against.";
+    if (activeRowIdx === -1) return { error: "no active task found" };
 
     const taskRow = data[activeRowIdx];
     const taskId = taskRow[idIdx];
@@ -160,17 +140,20 @@ function executeMarginalLogExecution(args: {
     const oldProb = Number(taskRow[probIdx]);
     const oldDuration = Number(taskRow[durationIdx]);
 
-    const expectedTotalValue = calculateExpectedValue_(oldWorst, oldBest, oldProb);
+    // 1. Calculate expected value (old expectations)
+    const expectedValue = calculateExpectedValue_(oldWorst, oldBest, oldProb);
     
-    // Calculate earned value: (duration_spent / expected_duration) * expected_total_value
-    // But capped at expected_total_value if completed or if duration exceeds.
-    let earnedValue = (args.duration_spent / oldDuration) * expectedTotalValue;
-    if (args.is_completed || earnedValue > expectedTotalValue) {
-        earnedValue = expectedTotalValue;
+    // 2. Calculate earned value
+    let earnedValue = 0;
+    if (args.is_completed) {
+        earnedValue = expectedValue;
+    } else {
+        earnedValue = (args.duration_spent / oldDuration) * expectedValue;
+        if (earnedValue > expectedValue) earnedValue = expectedValue;
     }
     earnedValue = Math.round(earnedValue * 100) / 100;
 
-    // 1. Write to tasklogs
+    // 3. Log it to tasklogs
     const logSheet = getMarginSheet_(MARGIN_LOGS_SHEET);
     logSheet.appendRow([
         Utilities.getUuid(),
@@ -180,7 +163,7 @@ function executeMarginalLogExecution(args: {
         earnedValue
     ]);
 
-    // 2. Update task stats
+    // 4. Update task expectations (if provided)
     const newWorst = args.new_worst !== undefined ? args.new_worst : oldWorst;
     const newBest = args.new_best !== undefined ? args.new_best : oldBest;
     const newProb = args.new_prob !== undefined ? args.new_prob : oldProb;
@@ -197,26 +180,28 @@ function executeMarginalLogExecution(args: {
     sheet.getRange(rowNum, durationIdx + 1).setValue(newDuration);
     sheet.getRange(rowNum, stateIdx + 1).setValue(newState);
     sheet.getRange(rowNum, marginalIdx + 1).setValue(newMarginal);
-    sheet.getRange(rowNum, scoreIdx + 1).setValue(1); // Reset score
-    sheet.getRange(rowNum, chosenIdx + 1).setValue(false); // Temporary, updateScoresAndChooseNextTask_ will set the new one
+    
+    // 5. Reset score of THIS task to 1 so inflation skipping logic works
+    sheet.getRange(rowNum, scoreIdx + 1).setValue(1);
+    sheet.getRange(rowNum, chosenIdx + 1).setValue(false);
 
-    // 3. Score inflation and pick next
-    const nextTaskName = updateScoresAndChooseNextTask_();
+    // 6. The gamification scoring round & pick new task
+    const nextTaskName = updateScoresAndChooseNextTask_(taskId);
 
-    return `Logged ${args.duration_spent} min, earned ${earnedValue} €. ${args.is_completed ? 'Task completed.' : 'Task remains active.'} Next task: ${nextTaskName}`;
+    return { next_task: nextTaskName };
 }
 
 /**
  * Tool: Log an extra task (one-off).
  */
-function executeMarginalLogExtra(args: { description: string, value: number }): string {
+function executeMarginalLogExtra(args: { description: string, value: number }): Record<string, any> {
     const sheet = getMarginSheet_(MARGIN_EXTRAS_SHEET);
     sheet.appendRow([
         new Date().toISOString(),
         args.description,
         args.value
     ]);
-    return `Logged extra task: "${args.description}" for ${args.value} €.`;
+    return { result: `logged extra task: ${args.description} for ${args.value} €` };
 }
 
 /**
@@ -228,7 +213,7 @@ function executeMarginalCreateTask(args: {
     best: number,
     prob: number,
     duration: number
-}): string {
+}): Record<string, any> {
     const sheet = getMarginSheet_(MARGIN_TASKS_SHEET);
     const expectedValue = calculateExpectedValue_(args.worst, args.best, args.prob);
     const marginal = calculateMarginalHourlyValue_(expectedValue, args.duration);
@@ -248,17 +233,18 @@ function executeMarginalCreateTask(args: {
         false    // is_chosen
     ]);
 
-    return `Created new task "${args.name}" (ID: ${taskId}). Marginal value: ${marginal.toFixed(2)} €/h.`;
+    return { result: `created task: ${args.name}`, task_id: taskId };
 }
 
 /**
  * Tool: Kill or skip the active task.
  */
-function executeMarginalKillSkip(args: { action: 'kill' | 'skip' }): string {
+function executeMarginalKillSkip(args: { action: 'kill' | 'skip' }): Record<string, any> {
     const sheet = getMarginSheet_(MARGIN_TASKS_SHEET);
     const data = sheet.getDataRange().getValues();
     const headers = data[0];
 
+    const idIdx = headers.indexOf('task_id');
     const stateIdx = headers.indexOf('state');
     const chosenIdx = headers.indexOf('is_chosen');
     const scoreIdx = headers.indexOf('score');
@@ -271,34 +257,44 @@ function executeMarginalKillSkip(args: { action: 'kill' | 'skip' }): string {
         }
     }
 
-    if (activeRowIdx === -1) return "No active task found to " + args.action + ".";
+    if (activeRowIdx === -1) return { error: "no active task found" };
 
     const rowNum = activeRowIdx + 1;
-    if (args.action === 'kill') {
+    const taskId = data[activeRowIdx][idIdx];
+
+    if (args.action === 'skip') {
+        const logSheet = getMarginSheet_(MARGIN_LOGS_SHEET);
+        logSheet.appendRow([
+            Utilities.getUuid(),
+            taskId,
+            new Date().toISOString(),
+            0, // 0 minutes
+            0  // 0 €
+        ]);
+        sheet.getRange(rowNum, scoreIdx + 1).setValue(1);
+    } else if (args.action === 'kill') {
         sheet.getRange(rowNum, stateIdx + 1).setValue('killed');
+        sheet.getRange(rowNum, scoreIdx + 1).setValue(1);
     }
     
-    // Both actions reset score and uncheck is_chosen before picking new
-    sheet.getRange(rowNum, scoreIdx + 1).setValue(1);
     sheet.getRange(rowNum, chosenIdx + 1).setValue(false);
 
-    const nextTaskName = updateScoresAndChooseNextTask_();
-    return `Task ${args.action}ed. Next task: ${nextTaskName}`;
+    const nextTaskName = updateScoresAndChooseNextTask_(taskId);
+    return { next_task: nextTaskName };
 }
 
 /**
  * Tool: Get evaluation data for today and yesterday.
  */
-function executeMarginalGetEval(): string {
+function executeMarginalGetEval(): Record<string, any> {
     try {
         const sheet = getMarginSheet_(MARGIN_EVAL_SHEET);
         const data = sheet.getDataRange().getValues();
-        if (data.length <= 1) return "No evaluation data available yet.";
+        if (data.length <= 1) return { result: "no evaluation data available yet" };
 
-        // Get last two rows
         const lastTwo = data.slice(-2);
-        return JSON.stringify(lastTwo);
+        return { evaluation_data: lastTwo };
     } catch (e) {
-        return "Error fetching eval data: " + e;
+        return { error: String(e) };
     }
 }
