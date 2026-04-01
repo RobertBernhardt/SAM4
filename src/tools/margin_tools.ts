@@ -298,3 +298,29 @@ function executeMarginalGetEval(): Record<string, any> {
         return { error: String(e) };
     }
 }
+
+/**
+ * Tool: Get the current active task name.
+ * Scans the tasks sheet for state='active' and is_chosen=TRUE.
+ */
+function executeMarginalGetCurrentTask(): Record<string, any> {
+    try {
+        const sheet = getMarginSheet_(MARGIN_TASKS_SHEET);
+        const data = sheet.getDataRange().getValues();
+        const headers = data[0];
+
+        const nameIdx = headers.indexOf('name');
+        const stateIdx = headers.indexOf('state');
+        const chosenIdx = headers.indexOf('is_chosen');
+
+        for (let i = 1; i < data.length; i++) {
+            if (data[i][stateIdx] === 'active' && (data[i][chosenIdx] === true || data[i][chosenIdx] === 'TRUE')) {
+                return { result: data[i][nameIdx] };
+            }
+        }
+
+        return { result: "no active task found" };
+    } catch (e) {
+        return { error: String(e) };
+    }
+}

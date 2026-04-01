@@ -27,6 +27,8 @@ function executeScriptTool(toolName: string, args: Record<string, any>): any {
             return executeMarginalKillSkip(args as any);
         case 'marginalgeteval':
             return executeMarginalGetEval();
+        case 'marginalgetcurrenttask':
+            return executeMarginalGetCurrentTask();
         default:
             return { error: `Script tool execution failed: unmapped tool '${toolName}'` };
     }
