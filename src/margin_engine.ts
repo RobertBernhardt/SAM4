@@ -65,7 +65,7 @@ function marginal_6h_purge(): void {
  * Midnight Evaluation Trigger.
  * 1. Calculate yesterday's performance using boundary-safe date logic.
  * 2. Update evaluation sheet.
- * 3. Generate an energetic morning report via AI.
+ * 3. Generate the morning summary report template.
  */
 function marginal_midnight_eval(): void {
     try {
@@ -149,20 +149,16 @@ function marginal_midnight_eval(): void {
             performanceVsAvg: performanceVsAvg.toFixed(2)
         };
 
-        const instruction = `
-            ACT AS MARVIN THE PARANOID ANDROID (DOUGLAS ADAMS STYLE). 
-            GENERATE THE DAILY PERFORMANCE REPORT BASED ON THESE METRICS: ${JSON.stringify(rawMetrics)}.
-            TONE: COLD, CYNICAL, DEPRESSED, BUT FUN AND ENGAGING FOR A MORNING READ.
-            REQUIREMENT: ACCURATELY REPORT ALL METRICS BUT EXPRESS PROFOUND DISDAIN FOR THE SIGNIFICANCE OF THESE NUMBERS IN AN INFINITE UNIVERSE.
-            FORMAT: ALL LOWER CASE. NO MARKDOWN ENTITIES EXCEPT BOLDING.
-        `;
+        const msg = `*daily summary report: ${dateStr.toLowerCase()}*\n\n` +
+                    `chain value: ${valueChain.toFixed(2)} €\n` +
+                    `extra value: ${valueExtras.toFixed(2)} €\n` +
+                    `total value: ${totalValue.toFixed(2)} €\n\n` +
+                    `rank: ${rank} out of ${evalData.length} recorded days\n` +
+                    `10d rolling average: ${rollingAvg.toFixed(2)} €\n` +
+                    `performance vs average: ${performanceVsAvg.toFixed(2)} €\n\n` +
+                    `here i am, brain the size of a planet, calculating your small change.`;
 
-        const uid = "eval_" + dateStr + "_" + new Date().getTime();
-        // Use a generic model call or a temporary logic to get the energetic tone
-        // Since we want to overhaul the tone and use AI, we'll route this to an energetic variant of the agent.
-        const report = runAlgo("masteralgo", uid, instruction);
-        
-        sendReply(getMarginBotToken(), getAdminChatId(), report);
+        sendReply(getMarginBotToken(), getAdminChatId(), [msg]);
 
     } catch (e) {
         Logger.log(`[MARGIN_ENGINE] Midnight eval failed: ${e}`);
