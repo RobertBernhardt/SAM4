@@ -193,6 +193,9 @@ function doPost(e: GoogleAppsScript.Events.DoPost): GoogleAppsScript.Content.Tex
         } else if (urlToken === getSubquestBotToken() || urlBot === 'subquest') {
             botToken = getSubquestBotToken();
             algoId = 'masteralgo';
+        } else if (urlToken === getMarginBotToken() || urlBot === 'margin') {
+            botToken = getMarginBotToken();
+            algoId = 'marginalgo';
         } else {
             botToken = getMasterBotToken();
             algoId = 'masteralgo';

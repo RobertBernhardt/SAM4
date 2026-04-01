@@ -17,6 +17,16 @@ function executeScriptTool(toolName: string, args: Record<string, any>): any {
             return executeSearchContentGems(args as any);
         case 'searchinteractivegems':
             return executeSearchInteractiveGems(args as any);
+        case 'marginallogexecution':
+            return executeMarginalLogExecution(args as any);
+        case 'marginallogextra':
+            return executeMarginalLogExtra(args as any);
+        case 'marginalcreatetask':
+            return executeMarginalCreateTask(args as any);
+        case 'marginalkillskip':
+            return executeMarginalKillSkip(args as any);
+        case 'marginalgeteval':
+            return executeMarginalGetEval();
         default:
             return { error: `Script tool execution failed: unmapped tool '${toolName}'` };
     }

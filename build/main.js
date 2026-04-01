@@ -173,6 +173,10 @@ function doPost(e) {
             botToken = getSubquestBotToken();
             algoId = 'masteralgo';
         }
+        else if (urlToken === getMarginBotToken() || urlBot === 'margin') {
+            botToken = getMarginBotToken();
+            algoId = 'marginalgo';
+        }
         else {
             botToken = getMasterBotToken();
             algoId = 'masteralgo';

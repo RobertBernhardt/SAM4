@@ -50,6 +50,10 @@ function getSubquestBotToken() {
 function getNewQuestBotToken() {
     return getScriptProp_('NEWQUEST_BOT_TOKEN');
 }
+/** Margin bot token — Gamified life tasks */
+function getMarginBotToken() {
+    return getScriptProp_('MARGIN_BOT_TOKEN');
+}
 /** Admin chat ID for push automations */
 function getAdminChatId() {
     return parseInt(getScriptProp_('ADMIN_CHAT_ID'), 10);
@@ -87,6 +91,11 @@ const QUEST_LOGS_SHEET_NAME = 'QuestLogs';
 const OUTBOX_SHEET_NAME = 'Outbox';
 /** The sheet name for quest-specific references. */
 const QUEST_REFS_SHEET_NAME = 'QuestReferences';
+// ─── Margin Sheets ──────────────────────────────────────────
+const MARGIN_TASKS_SHEET = 'tasks';
+const MARGIN_LOGS_SHEET = 'tasklogs';
+const MARGIN_EXTRAS_SHEET = 'extratasks';
+const MARGIN_EVAL_SHEET = 'taskevaluation';
 /** The spreadsheet ID for agent state (set in Script Properties). */
 function getStateSpreadsheetId() {
     return getScriptProp_('STATE_SPREADSHEET_ID');
