@@ -127,17 +127,11 @@ function updateScoresAndChooseNextTask_(excludedId: string): string {
 /**
  * Tool: Log execution of the active task.
  */
-function executeMarginalLogExecution(args: {
-    duration_spent_hours: number,
-    duration_spent_minutes: number,
-    is_completed: boolean,
-    new_worst?: number,
-    new_best?: number,
-    new_prob?: number,
-    new_duration_hours?: number,
-    new_duration_minutes?: number
-}): Record<string, any> {
+function executeMarginalLogExecution(args: Record<string, any>): Record<string, any> {
     // 0. Validation
+    if (args.duration_spent_hours === undefined || args.duration_spent_minutes === undefined || args.is_completed === undefined) {
+        return { error: "error: missing required fields. you must provide duration_spent_hours, duration_spent_minutes, and is_completed." };
+    }
     if (args.new_prob !== undefined && args.new_prob > 1) {
         return { error: "PROBABILITY_ERROR: Probability must be a decimal between 0.0 and 1.0 (e.g., 0.4 for 40%). You passed a value greater than 1." };
     }
@@ -206,15 +200,19 @@ function executeMarginalLogExecution(args: {
     ]);
 
     // 4. Update task expectations (if provided)
-    const newWorst = args.new_worst !== undefined ? args.new_worst : oldWorst;
-    const newBest = args.new_best !== undefined ? args.new_best : oldBest;
-    const newProb = args.new_prob !== undefined ? args.new_prob : oldProb;
+    // BE ROBUST: The AI might pass these under several names (new_worst, worst, worst_case_value)
+    const newWorst = args.new_worst ?? args.worst ?? args.worst_case_value ?? oldWorst;
+    const newBest = args.new_best ?? args.best ?? args.best_case_value ?? oldBest;
+    const newProb = args.new_prob ?? args.prob ?? args.probability_best ?? oldProb;
     
     let newDurationMin;
-    if (args.new_duration_hours !== undefined || args.new_duration_minutes !== undefined) {
-        newDurationMin = (args.new_duration_hours || 0) * 60 + (args.new_duration_minutes || 0);
+    const dHours = args.new_duration_hours ?? args.duration_hours;
+    const dMin = args.new_duration_minutes ?? args.duration_minutes;
+
+    if (dHours !== undefined || dMin !== undefined) {
+        newDurationMin = (dHours || 0) * 60 + (dMin || 0);
     } else {
-        newDurationMin = oldDuration;
+        newDurationMin = args.new_duration ?? args.duration ?? args.expected_duration_min ?? oldDuration;
     }
 
     const newState = args.is_completed ? 'completed' : 'active';
@@ -223,12 +221,12 @@ function executeMarginalLogExecution(args: {
     const newMarginal = calculateMarginalHourlyValue_(newExpectedValue, newDurationMin);
 
     const rowNum = activeRowIdx + 1;
-    sheet.getRange(rowNum, worstIdx + 1).setValue(newWorst);
-    sheet.getRange(rowNum, bestIdx + 1).setValue(newBest);
+    sheet.getRange(rowNum, worstIdx + 1).setValue(Number(newWorst) || 0);
+    sheet.getRange(rowNum, bestIdx + 1).setValue(Number(newBest) || 0);
     sheet.getRange(rowNum, probIdx + 1).setValue(newProb);
-    sheet.getRange(rowNum, durationIdx + 1).setValue(newDurationMin);
+    sheet.getRange(rowNum, durationIdx + 1).setValue(Number(newDurationMin) || 0);
     sheet.getRange(rowNum, stateIdx + 1).setValue(newState);
-    sheet.getRange(rowNum, marginalIdx + 1).setValue(newMarginal);
+    sheet.getRange(rowNum, marginalIdx + 1).setValue(!isNaN(newMarginal) ? newMarginal : 0);
     
     // 5. Reset score of THIS task to 1 so inflation skipping logic works
     sheet.getRange(rowNum, scoreIdx + 1).setValue(1);
@@ -256,15 +254,14 @@ function executeMarginalLogExtra(args: { description: string, value: number }): 
 /**
  * Tool: Create a new task.
  */
-function executeMarginalCreateTask(args: {
-    name: string,
-    worst: number,
-    best: number,
-    prob: number,
-    duration_hours: number,
-    duration_minutes: number
-}): Record<string, any> {
+function executeMarginalCreateTask(args: Record<string, any>): Record<string, any> {
     // 0. Validation
+    if (!args.name || args.worst === undefined || args.best === undefined || args.prob === undefined) {
+        return { error: "error: missing required fields for task creation. you must provide name, worst, best, and prob." };
+    }
+    if (args.duration_hours === undefined && args.duration_minutes === undefined) {
+        return { error: "error: missing duration. you must provide duration_hours and/or duration_minutes." };
+    }
     if (args.prob > 1) {
         return { error: "PROBABILITY_ERROR: Probability must be a decimal between 0.0 and 1.0 (e.g., 0.4 for 40%). You passed a value greater than 1." };
     }
@@ -274,8 +271,12 @@ function executeMarginalCreateTask(args: {
 
     const durationMin = (args.duration_hours || 0) * 60 + (args.duration_minutes || 0);
 
+    const worstVal = args.worst ?? args.worst_case_value ?? 0;
+    const bestVal = args.best ?? args.best_case_value ?? 0;
+    const probVal = args.prob ?? args.probability_best ?? 0;
+
     const sheet = getMarginSheet_(MARGIN_TASKS_SHEET);
-    const expectedValue = calculateExpectedValue_(args.worst, args.best, args.prob);
+    const expectedValue = calculateExpectedValue_(worstVal, bestVal, probVal);
     const marginal = calculateMarginalHourlyValue_(expectedValue, durationMin);
     
     const taskId = Utilities.getUuid().substring(0, 8);
@@ -283,11 +284,11 @@ function executeMarginalCreateTask(args: {
     sheet.appendRow([
         taskId,
         args.name,
-        args.worst,
-        args.best,
-        args.prob,
-        durationMin,
-        marginal,
+        Number(worstVal) || 0,
+        Number(bestVal) || 0,
+        probVal,
+        Number(durationMin) || 0,
+        !isNaN(marginal) ? marginal : 0,
         1,       // initial score
         'active', // state
         false    // is_chosen
