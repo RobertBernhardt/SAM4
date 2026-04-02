@@ -112,6 +112,7 @@ function executeMarginalLogExecution(args) {
     const data = sheet.getDataRange().getValues();
     const headers = data[0];
     const idIdx = headers.indexOf('task_id');
+    const nameIdx = headers.indexOf('name');
     const worstIdx = headers.indexOf('worst_case_value');
     const bestIdx = headers.indexOf('best_case_value');
     const probIdx = headers.indexOf('probability_best');
@@ -131,6 +132,7 @@ function executeMarginalLogExecution(args) {
         return { error: "no active task found" };
     const taskRow = data[activeRowIdx];
     const taskId = taskRow[idIdx];
+    const taskName = taskRow[nameIdx];
     const oldWorst = Number(taskRow[worstIdx]);
     const oldBest = Number(taskRow[bestIdx]);
     const oldProb = taskRow[probIdx]; // Keep raw for santization
@@ -159,7 +161,7 @@ function executeMarginalLogExecution(args) {
     // 3. Log it to tasklogs
     const logSheet = getMarginSheet_(MARGIN_LOGS_SHEET);
     logSheet.appendRow([
-        Utilities.getUuid(),
+        taskName,
         taskId,
         new Date().toISOString(),
         durationSpentMin,
