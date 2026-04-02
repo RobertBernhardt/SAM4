@@ -135,11 +135,13 @@ function executeMarginalLogExecution(args) {
     const oldBest = Number(taskRow[bestIdx]);
     const oldProb = taskRow[probIdx]; // Keep raw for santization
     const oldDuration = Number(taskRow[durationIdx]);
-    // 0.5. Best/Worst Validation (relative to old values if not provided)
-    const validateWorst = args.new_worst !== undefined ? args.new_worst : oldWorst;
-    const validateBest = args.new_best !== undefined ? args.new_best : oldBest;
+    // 0.5. Best/Worst Auto-Correction (relative to old values if not provided)
+    let validateWorst = args.new_worst ?? args.worst ?? args.worst_case_value ?? oldWorst;
+    let validateBest = args.new_best ?? args.best ?? args.best_case_value ?? oldBest;
     if (validateBest < validateWorst) {
-        return { error: "error: the best case value cannot be lower than the worst case value. you likely swapped them. please correct the values and call the tool again." };
+        const temp = validateWorst;
+        validateWorst = validateBest;
+        validateBest = temp;
     }
     // 1. Calculate expected value (old expectations)
     const expectedValue = calculateExpectedValue_(oldWorst, oldBest, oldProb);
@@ -165,8 +167,8 @@ function executeMarginalLogExecution(args) {
     ]);
     // 4. Update task expectations (if provided)
     // BE ROBUST: The AI might pass these under several names (new_worst, worst, worst_case_value)
-    const newWorst = args.new_worst ?? args.worst ?? args.worst_case_value ?? oldWorst;
-    const newBest = args.new_best ?? args.best ?? args.best_case_value ?? oldBest;
+    const newWorst = validateWorst;
+    const newBest = validateBest;
     const newProb = args.new_prob ?? args.prob ?? args.probability_best ?? oldProb;
     let newDurationMin;
     const dHours = args.new_duration_hours ?? args.duration_hours;
@@ -220,13 +222,16 @@ function executeMarginalCreateTask(args) {
     if (args.prob > 1) {
         return { error: "PROBABILITY_ERROR: Probability must be a decimal between 0.0 and 1.0 (e.g., 0.4 for 40%). You passed a value greater than 1." };
     }
-    if (args.best < args.worst) {
-        return { error: "error: the best case value cannot be lower than the worst case value. you likely swapped them. please correct the values and call the tool again." };
-    }
     const durationMin = (args.duration_hours || 0) * 60 + (args.duration_minutes || 0);
-    const worstVal = args.worst ?? args.worst_case_value ?? 0;
-    const bestVal = args.best ?? args.best_case_value ?? 0;
+    let worstVal = args.worst ?? args.worst_case_value ?? 0;
+    let bestVal = args.best ?? args.best_case_value ?? 0;
     const probVal = args.prob ?? args.probability_best ?? 0;
+    // Auto-Correct Swapped Values
+    if (bestVal < worstVal) {
+        const temp = worstVal;
+        worstVal = bestVal;
+        bestVal = temp;
+    }
     const sheet = getMarginSheet_(MARGIN_TASKS_SHEET);
     const expectedValue = calculateExpectedValue_(worstVal, bestVal, probVal);
     const marginal = calculateMarginalHourlyValue_(expectedValue, durationMin);
