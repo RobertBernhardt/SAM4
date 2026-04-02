@@ -115,20 +115,23 @@ function marginal_midnight_eval(): void {
         const evalSheet = getMarginSheet_(MARGIN_EVAL_SHEET);
         const evalData = evalSheet.getDataRange().getValues();
         
-        // PER USER REQUIREMENT: Strip the header row
-        const history = evalData.slice(1);
+        // Filter out header and invalid rows (e.g., empty or strings in the "total" column)
+        const historyScores: number[] = evalData.slice(1)
+            .map(row => Number(row[3]))
+            .filter(val => !isNaN(val) && typeof val === 'number');
 
         // PER USER REQUIREMENT: Optimize rank calculation via fast in-memory filter
-        // rank: filter for values strictly greater than today's calculated total value + 1
-        const rank = history.map(row => Number(row[3]) || 0).filter(val => val > totalValue).length + 1;
+        // rank: filter for values strictly greater than today's calculated total value
+        const rank = historyScores.filter(val => val > totalValue).length + 1;
 
-        // PER USER REQUIREMENT: Fix 10-day rolling average using history.slice(-10) 
-        // to prevent inclusion of the header string as NaN.
-        const last10Rows = history.slice(-10);
-        const sumLast10 = last10Rows.reduce((sum, row) => sum + (Number(row[3]) || 0), totalValue);
-        const rollingAvg = sumLast10 / (last10Rows.length + 1);
+        // PER USER REQUIREMENT: Fix 10-day rolling average.
+        // Include today's value, take last 10 points, and use dynamic denominator.
+        const allPoints = [...historyScores, totalValue];
+        const last10Points = allPoints.slice(-10);
+        const sumLast10 = last10Points.reduce((sum, val) => sum + val, 0);
+        const rollingAvg = sumLast10 / last10Points.length;
 
-        // PER USER REQUIREMENT: Simple performance calculation
+        // Performance vs Average (Today - Average)
         const performanceVsAvg = totalValue - rollingAvg;
 
         evalSheet.appendRow([
@@ -146,7 +149,7 @@ function marginal_midnight_eval(): void {
                     `chain value: ${valueChain.toFixed(2)} €\n` +
                     `extra value: ${valueExtras.toFixed(2)} €\n` +
                     `total value: ${totalValue.toFixed(2)} €\n\n` +
-                    `rank: ${rank} out of ${history.length + 1} recorded days\n` +
+                    `rank: ${rank} out of ${historyScores.length + 1} recorded days\n` +
                     `10d rolling average: ${rollingAvg.toFixed(2)} €\n` +
                     `performance vs average: ${performanceVsAvg.toFixed(2)} €\n\n` +
                     `here i am, brain the size of a planet, calculating your small change.`;

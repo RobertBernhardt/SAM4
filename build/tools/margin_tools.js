@@ -23,9 +23,7 @@ function sanitizeProbability_(prob) {
     const n = Number(prob);
     if (isNaN(n))
         return 0;
-    // If the value is > 1 (e.g., 40 for 40%), convert to decimal 0.4
-    if (n > 1)
-        return n / 100;
+    // Auto-correction of values > 1 is now removed to force AI compliance via validation in tool functions.
     return n;
 }
 /**
@@ -102,6 +100,11 @@ function updateScoresAndChooseNextTask_(excludedId) {
  * Tool: Log execution of the active task.
  */
 function executeMarginalLogExecution(args) {
+    // 0. Validation
+    if (args.new_prob !== undefined && args.new_prob > 1) {
+        return { error: "PROBABILITY_ERROR: Probability must be a decimal between 0.0 and 1.0 (e.g., 0.4 for 40%). You passed a value greater than 1." };
+    }
+    const durationSpentMin = (args.duration_spent_hours || 0) * 60 + (args.duration_spent_minutes || 0);
     const sheet = getMarginSheet_(MARGIN_TASKS_SHEET);
     const data = sheet.getDataRange().getValues();
     const headers = data[0];
@@ -129,6 +132,12 @@ function executeMarginalLogExecution(args) {
     const oldBest = Number(taskRow[bestIdx]);
     const oldProb = taskRow[probIdx]; // Keep raw for santization
     const oldDuration = Number(taskRow[durationIdx]);
+    // 0.5. Best/Worst Validation (relative to old values if not provided)
+    const validateWorst = args.new_worst !== undefined ? args.new_worst : oldWorst;
+    const validateBest = args.new_best !== undefined ? args.new_best : oldBest;
+    if (validateBest < validateWorst) {
+        return { error: "error: the best case value cannot be lower than the worst case value. you likely swapped them. please correct the values and call the tool again." };
+    }
     // 1. Calculate expected value (old expectations)
     const expectedValue = calculateExpectedValue_(oldWorst, oldBest, oldProb);
     // 2. Calculate earned value
@@ -137,7 +146,7 @@ function executeMarginalLogExecution(args) {
         earnedValue = expectedValue;
     }
     else {
-        earnedValue = (args.duration_spent / oldDuration) * expectedValue;
+        earnedValue = (durationSpentMin / oldDuration) * expectedValue;
         if (earnedValue > expectedValue)
             earnedValue = expectedValue;
     }
@@ -148,22 +157,28 @@ function executeMarginalLogExecution(args) {
         Utilities.getUuid(),
         taskId,
         new Date().toISOString(),
-        args.duration_spent,
+        durationSpentMin,
         earnedValue
     ]);
     // 4. Update task expectations (if provided)
     const newWorst = args.new_worst !== undefined ? args.new_worst : oldWorst;
     const newBest = args.new_best !== undefined ? args.new_best : oldBest;
     const newProb = args.new_prob !== undefined ? args.new_prob : oldProb;
-    const newDuration = args.new_duration !== undefined ? args.new_duration : oldDuration;
+    let newDurationMin;
+    if (args.new_duration_hours !== undefined || args.new_duration_minutes !== undefined) {
+        newDurationMin = (args.new_duration_hours || 0) * 60 + (args.new_duration_minutes || 0);
+    }
+    else {
+        newDurationMin = oldDuration;
+    }
     const newState = args.is_completed ? 'completed' : 'active';
     const newExpectedValue = calculateExpectedValue_(newWorst, newBest, newProb);
-    const newMarginal = calculateMarginalHourlyValue_(newExpectedValue, newDuration);
+    const newMarginal = calculateMarginalHourlyValue_(newExpectedValue, newDurationMin);
     const rowNum = activeRowIdx + 1;
     sheet.getRange(rowNum, worstIdx + 1).setValue(newWorst);
     sheet.getRange(rowNum, bestIdx + 1).setValue(newBest);
     sheet.getRange(rowNum, probIdx + 1).setValue(newProb);
-    sheet.getRange(rowNum, durationIdx + 1).setValue(newDuration);
+    sheet.getRange(rowNum, durationIdx + 1).setValue(newDurationMin);
     sheet.getRange(rowNum, stateIdx + 1).setValue(newState);
     sheet.getRange(rowNum, marginalIdx + 1).setValue(newMarginal);
     // 5. Reset score of THIS task to 1 so inflation skipping logic works
@@ -189,9 +204,17 @@ function executeMarginalLogExtra(args) {
  * Tool: Create a new task.
  */
 function executeMarginalCreateTask(args) {
+    // 0. Validation
+    if (args.prob > 1) {
+        return { error: "PROBABILITY_ERROR: Probability must be a decimal between 0.0 and 1.0 (e.g., 0.4 for 40%). You passed a value greater than 1." };
+    }
+    if (args.best < args.worst) {
+        return { error: "error: the best case value cannot be lower than the worst case value. you likely swapped them. please correct the values and call the tool again." };
+    }
+    const durationMin = (args.duration_hours || 0) * 60 + (args.duration_minutes || 0);
     const sheet = getMarginSheet_(MARGIN_TASKS_SHEET);
     const expectedValue = calculateExpectedValue_(args.worst, args.best, args.prob);
-    const marginal = calculateMarginalHourlyValue_(expectedValue, args.duration);
+    const marginal = calculateMarginalHourlyValue_(expectedValue, durationMin);
     const taskId = Utilities.getUuid().substring(0, 8);
     sheet.appendRow([
         taskId,
@@ -199,7 +222,7 @@ function executeMarginalCreateTask(args) {
         args.worst,
         args.best,
         args.prob,
-        args.duration,
+        durationMin,
         marginal,
         1, // initial score
         'active', // state
